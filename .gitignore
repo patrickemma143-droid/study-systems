@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+data/*.db
+data/*.db-*
+data/.secret
+.env
+.DS_Store
+!data/.gitkeep

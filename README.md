@@ -1,0 +1,213 @@
+# Charis Study
+
+Charis Study turns a lecture PDF, slides, Word notes, pasted text or **just a topic name** into bite-size lessons, then lets the student choose how to learn it. Every method is built on how memory works.
+
+It is a **Charis Creations** product. Version 1 is **API-free**: no AI keys and no cost per student. Everything runs on your own server.
+
+---
+
+## Quick start (Windows, Mac or Linux)
+
+You need **Node.js 22 LTS or newer** from <https://nodejs.org>. Check it with `node -v`.
+
+```bash
+cd "charis-study"
+npm install
+copy .env.example .env        # Windows   (Mac/Linux: cp .env.example .env)
+npm run dev
+```
+
+Open **http://localhost:5173**. Create an account, then click **Try a sample lecture** to see the whole experience in seconds.
+
+`npm run dev` runs two things together:
+
+- the API on port 8787
+- the web app on port 5173, which forwards `/api` to the API
+
+The SQLite database creates itself in `data/charis-study.db` the first time it runs.
+
+### Production build
+
+```bash
+npm run build      # builds the web app into dist/ and the server into build/server.js
+npm start          # runs server.js: one Node process serves the API and the app on PORT (default 8787)
+```
+
+To check the study engine on its own, run `npm run test:engine`. Add `-v` to see every card and question it makes from the sample lecture.
+
+---
+
+## Study methods included
+
+| Method | What the student does | Memory principle |
+|---|---|---|
+| **Bite-size lessons** | Reads 150–350-word chunks: "in a nutshell", the main points, the full notes with highlighted jargon (tap a term for its meaning), and "think deeper" questions | Chunking, elaboration |
+| **Flashcards** | Definition, reverse, fill-the-gap and list cards with Again/Hard/Good/Easy ratings | Spaced repetition (SM-2), active recall |
+| **Practice quiz** | Multiple choice, true/false, typed fill-the-gap, put-in-order. Wrong answers move that lesson's cards to the front of the queue | Testing effect |
+| **Mixed quiz** | Questions from every pack, mixed together | Interleaving |
+| **Cram plan** | A 15/30/60-minute guided plan: cheat sheet → quick-fire cards → quiz → (blurt) → mistakes. Focuses on the "most examinable" lessons | Prioritised retrieval for last-minute readers |
+| **Feynman technique** | Studies a lesson, hides it, explains it in simple words (typed or spoken), then sees which key ideas and terms were covered or missed, plus a simplicity check | Self-explanation |
+| **Blurting** | Writes everything they remember against a timer, then compares it with the notes | Free recall |
+| **Memory palace** | Places key ideas along a familiar route (walk to campus, your home, your body, or a custom route), with a suggested vivid image for each stop. Then a "walk it" recall mode | Method of loci |
+| **Mnemonics** | An acronym, silly sentences and a story for every list; unordered lists are rearranged to make an easier word. Students can make their own | Acronyms, acrostics, story method |
+| **Mind map** | A radial map of lessons and key terms, with an outline view on phones | Dual coding |
+| **Cornell notes** | Questions on the left, notes on the right, summary below. "Cover notes" to self-test. Printable | Cornell system |
+| **Listen mode** | Lessons read aloud, plus audio flashcards (question, pause, answer) for the taxi or the walk | Audio learning |
+| **Cheat sheet** | Definitions, lists with acronyms and key points on one printable page | Summary review |
+| **Focus timer** | A Pomodoro timer (25/5, 15/3, 50/10) that keeps running across pages and logs study time | Focused practice and spacing |
+
+Also included:
+
+- a dashboard with streaks, a daily goal, minutes per day and cards in long-term memory
+- exam dates (flashcard intervals are capped so everything is reviewed before the exam)
+- a method recommender that uses the exam date and what the student enjoys
+- dark mode, a mobile layout with a bottom tab bar, and keyboard shortcuts
+
+## Supported inputs
+
+- **PDF**: lecture notes and slides exported to PDF. Headings are detected from font size, and repeated headers and footers are removed.
+- **PowerPoint (.pptx)**: slide titles, bullets and speaker notes.
+- **Word (.docx)**: headings, bold headings, bullets and tables.
+- **Text (.txt or .md)**, or notes pasted straight in.
+- **Only a topic**: lessons are built from Wikipedia, with a Simple English introduction. The pack also links to Khan Academy, YouTube, OpenStax, LibreTexts, MIT OCW, Google Scholar and past-paper searches.
+
+Files are read **in the browser**. Only the extracted text is sent to the server.
+
+---
+
+## How the API-free engine works
+
+The engine lives in `shared/engine/` and is plain TypeScript with no AI.
+
+1. **Clean**: fix PDF ligatures and hyphenation, strip citations, page numbers, and headers or footers that repeat on many pages.
+2. **Chunk**: split by headings, break long sections at paragraph boundaries, and merge tiny ones (such as title slides).
+3. **Key terms**: RAKE-style phrase extraction, scored by frequency, spread, headings and definitions. "Topic words" that appear everywhere (like *cell* in a biology lecture) are ignored.
+4. **Definitions**: patterns such as *"X is a…"*, *"X refers to…"*, *"… is called X"* and *"Term: meaning"*.
+5. **Lists**: bullet groups and inline enumerations (*"The four stages of mitosis are A, B, C and D"*), including *"…three structures. These are A, B and C."*
+6. **Key points**: TextRank sentence ranking, boosted for definitions, key terms and cue words.
+7. **Generation**: flashcards, quiz questions (distractors come from the pack's own vocabulary), mnemonics, memory-palace stops and elaboration questions.
+8. **Recall checking** (`recall.ts`): concept coverage and a readability check, used by Feynman and blurting.
+
+### Limitations of the API-free version
+
+- It **selects** the best sentences but cannot rewrite them in simpler words.
+- Cards and questions come from patterns. They are strongest for definition-heavy subjects and weaker for maths working, derivations, code and diagrams.
+- There is no tutor chat for follow-up questions.
+- Feynman and blurting marking checks which ideas and terms were covered. It does not truly grade understanding.
+- Scanned PDFs or photos of notes have no text layer, so they can't be read yet. The app warns the student when this happens.
+- Equations, tables and images are flattened or dropped.
+- Topic mode only uses Wikipedia, so it won't match a specific lecturer's syllabus.
+- The engine is tuned for English.
+
+---
+
+## Upgrading to AI later
+
+`buildStudyPack(blocks, opts)` in `shared/engine/index.ts` returns a `StudyPack` (see `shared/engine/types.ts`). To add AI:
+
+1. Create `server/services/ai.ts`. Send the chunk text to Gemini (it has a free tier) or Claude, and ask for JSON in the same `StudyPack` shape: simplified explanations, better questions and analogies.
+2. In `server/routes/packs.ts`, call it after `buildStudyPack` for Pro users, and merge or replace the fields.
+3. Use `checkRecall` as the free fallback, and add AI marking for Feynman explanations.
+4. Add an `/api/tutor` route for a "explain this differently" chat on each lesson.
+
+The `.env` file already has placeholders for `AI_PROVIDER` and `AI_API_KEY`.
+
+---
+
+## Deployment
+
+### Hostinger (Business or Cloud plan), the main setup
+
+Hostinger runs Node.js apps straight from GitHub. Once you connect it, **every push to `main` rebuilds and redeploys the site**. FTP/FTPS is not used. Any file you change through FTP or File Manager is overwritten on the next deploy.
+
+1. **Create a MySQL database.** In hPanel go to **Websites → (your site) → Databases → Management**. Create a database and user, and note the name, user and password. The host is `localhost`.
+2. **Add the app.** Go to **Websites → Add website → Node.js web app → Import Git repository**. Connect GitHub and pick `patrickemma143-droid/study-systems`, branch `main`.
+   - A Node.js app must be added as a *new* website. If your domain is already attached to another site, remove it there first.
+3. **Build settings.** Use these:
+
+   | Setting | Value |
+   |---|---|
+   | Framework | Express (or "Other") |
+   | Node version | 22 |
+   | Build command | `npm run build` |
+   | Entry file | `server.js` |
+
+4. **Environment variables.** Add these in the deploy settings:
+
+   | Variable | Value |
+   |---|---|
+   | `NODE_ENV` | `production` |
+   | `JWT_SECRET` | a long random string (generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
+   | `COOKIE_SECURE` | `true` |
+   | `DB_HOST` | `localhost` |
+   | `DB_PORT` | `3306` |
+   | `DB_USER` | your MySQL user |
+   | `DB_PASSWORD` | your MySQL password |
+   | `DB_NAME` | your database name |
+   | `CONTACT_EMAIL` | your email (Wikipedia asks for a contact in requests) |
+
+5. **Deploy.** The tables are created automatically on first start. Open your domain, create an account and try the sample lecture.
+
+**Updating the site:** push to `main`. The **CI** check in GitHub Actions runs type checks, the engine test and a production build on every push, so a broken build shows up in GitHub before you go looking at the live site.
+
+**Without MySQL:** if you leave out the `DB_*` variables, the app uses SQLite. On Hostinger it stores the database in `<domain folder>/charis-data/`, outside the folders that get rebuilt, so data survives redeploys. MySQL is still recommended there, because Hostinger backs it up.
+
+**Restarting:** use the Restart option on the website dashboard. Server logs are on the deployment page.
+
+### VPS (any provider)
+
+```bash
+git clone https://github.com/patrickemma143-droid/study-systems.git && cd study-systems
+npm ci && npm run build
+cp .env.example .env    # set JWT_SECRET, COOKIE_SECURE=true, and DB_* if you use MySQL
+npm i -g pm2 && pm2 start server.js --name charis-study && pm2 save
+```
+
+Put Nginx in front (`proxy_pass http://127.0.0.1:8787;`) and add HTTPS with Certbot.
+
+### Environment variables
+
+See `.env.example`. MySQL settings can be given as `DB_*` (Hostinger's names), as `MYSQL_*`, or as a single `DATABASE_URL=mysql://user:pass@localhost:3306/dbname`. When any of these are set, MySQL is used automatically. The MySQL path has been tested end to end on MariaDB 10.11, the database Hostinger runs.
+
+## Project structure
+
+```
+charis-study/
+├─ shared/                 code used by both server and browser
+│  ├─ engine/              the API-free study engine
+│  │  ├─ index.ts          buildStudyPack()  ← swap or extend this for AI
+│  │  ├─ blocks.ts         text → structured blocks, cleaning
+│  │  ├─ chunker.ts        bite-size sections
+│  │  ├─ keyterms.ts       key-term extraction
+│  │  ├─ definitions.ts    definitions and lists
+│  │  ├─ summarize.ts      TextRank key points
+│  │  ├─ practice.ts       flashcards, quiz, elaboration prompts
+│  │  ├─ mnemonics.ts      acronyms, acrostics, stories
+│  │  └─ recall.ts         Feynman and blurting checks
+│  ├─ srs.ts               spaced-repetition scheduler (exam-aware)
+│  ├─ resources.ts         free learning links for topic mode
+│  └─ sample.ts            the sample lecture
+├─ server.js               production entry file (Hostinger "Entry file")
+├─ .github/workflows/ci.yml build check on every push
+├─ server/                 Express API
+│  ├─ index.ts             app, security headers, static hosting
+│  ├─ config.ts            settings, data folder (survives Hostinger redeploys)
+│  ├─ db.ts                Knex + in-code migrations (SQLite or MySQL)
+│  ├─ auth.ts              accounts (bcrypt + JWT cookie)
+│  ├─ routes/packs.ts      create, list and manage study packs; topic mode
+│  ├─ routes/study.ts      cards, reviews, quizzes, progress, notes, stats
+│  └─ services/wikipedia.ts
+└─ src/                    React web app (Vite)
+   ├─ lib/extract/         PDF (pdf.js), Word (mammoth), PowerPoint (JSZip) readers
+   ├─ components/          layout, focus timer, quiz runner, highlighter, etc.
+   └─ pages/               one page per study method
+```
+
+## Suggested next steps
+
+- Password reset by email, and Google sign-in.
+- An offline mode (PWA service worker) so packs work without data.
+- OCR for scanned notes (Tesseract.js runs in the browser for free).
+- Class groups, so a lecturer or class rep can share a pack with a whole course.
+- A Pro tier with AI explanations and tutor chat (see the upgrade section above).
+- An Android app built from the same code with Capacitor.

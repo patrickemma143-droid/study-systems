@@ -1,0 +1,10 @@
+{
+  "name": "Charis Study",
+  "short_name": "Charis Study",
+  "description": "Turn notes, PDFs and slides into lessons, flashcards, quizzes and memory tricks.",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#EEF3F9",
+  "theme_color": "#2346B8",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
