@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
@@ -50,6 +51,15 @@ app.get('/api/health', async (_req, res) => {
     node: process.version,
   });
 });
+// Crashes in students' browsers are written to the server log (hPanel → your app → logs) so they can be fixed.
+const errorReports = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false });
+app.post('/api/client-error', errorReports, (req, res) => {
+  const b = req.body || {};
+  const clip = (v: unknown, n: number) => String(v ?? '').slice(0, n).replace(/[\r\n]+/g, ' ⏎ ');
+  console.error(`[client error] ${clip(b.message, 500)} | page ${clip(b.url, 200)} | ${clip(b.stack, 1500)} | ${clip(req.get('user-agent'), 160)}`);
+  res.status(204).end();
+});
+
 app.use('/api', (req, res, next) => {
   if (dbState.ready) return next();
   res.status(503).json({ error: 'Charis Study is starting up or can’t reach its database. Try again in a minute.' });

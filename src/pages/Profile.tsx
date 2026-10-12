@@ -5,7 +5,7 @@ import { api, type User } from '../api';
 import { useAuth } from '../auth';
 import { AiPlanCard } from '../components/AiPanels';
 import { useToast } from '../components/ui';
-import { save, store } from '../lib/util';
+import { forget } from '../lib/util';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -25,7 +25,10 @@ export default function Profile() {
   const nav = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState({ name: user?.name || '', university: user?.university || '', course: user?.course || '', dailyGoal: user?.dailyGoal || 20 });
-  const [theme, setTheme] = useState<Theme>(() => (store<string | null>('cs-theme', null) as Theme) || 'system');
+  const [theme, setTheme] = useState<Theme>(() => {
+    const t = document.documentElement.dataset.theme;
+    return t === 'light' || t === 'dark' ? t : 'system';
+  });
   const [pw, setPw] = useState({ current: '', next: '' });
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const [delPw, setDelPw] = useState('');
@@ -57,7 +60,7 @@ export default function Profile() {
     if (!window.confirm('Delete your account and all your study packs for good? This can’t be undone.')) return;
     try {
       await api('/auth/me', { method: 'DELETE', body: { password: delPw } });
-      save('cs-timer', null);
+      forget('cs-timer');
       window.location.href = '/';
     } catch (err: any) {
       toast(err.message);

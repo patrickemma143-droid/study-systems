@@ -22,9 +22,27 @@ const PRESETS = [
 
 const initial: TimerState = { phase: 'focus', focusMin: 25, breakMin: 5, endsAt: null, remaining: 25 * 60, rounds: 0 };
 
+const num = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+
+/** A saved timer from an older version, another account or a cleared browser must never break the page. */
+function loadTimer(): TimerState {
+  const t = store<Partial<TimerState> | null>('cs-timer', null);
+  if (!t || typeof t !== 'object') return initial;
+  const focusMin = num(t.focusMin, 1, 180) ? t.focusMin! : initial.focusMin;
+  const breakMin = num(t.breakMin, 1, 60) ? t.breakMin! : initial.breakMin;
+  return {
+    phase: t.phase === 'break' ? 'break' : 'focus',
+    focusMin,
+    breakMin,
+    endsAt: num(t.endsAt, 0, Date.now() + 4 * 3600_000) ? t.endsAt! : null,
+    remaining: num(t.remaining, 0, 4 * 3600) ? t.remaining! : focusMin * 60,
+    rounds: num(t.rounds, 0, 1000) ? t.rounds! : 0,
+  };
+}
+
 /** Pomodoro focus timer. Lives in the top bar so it keeps running while you move between pages. */
 export function FocusTimer() {
-  const [s, setS] = useState<TimerState>(() => store('cs-timer', initial));
+  const [s, setS] = useState<TimerState>(loadTimer);
   const [open, setOpen] = useState(false);
   const [, tick] = useState(0);
   const ref = useRef<HTMLDivElement>(null);

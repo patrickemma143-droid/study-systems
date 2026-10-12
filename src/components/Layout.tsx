@@ -48,7 +48,9 @@ export function Layout() {
             </NavLink>
           </nav>
           <div className="spacer" />
-          <FocusTimer />
+          <ErrorBoundary fallback={null}>
+            <FocusTimer />
+          </ErrorBoundary>
           <Link to="/profile" className="btn icon" style={{ borderRadius: '50%', fontWeight: 600, fontSize: '0.85rem' }} aria-label="Your profile">
             {initials}
           </Link>

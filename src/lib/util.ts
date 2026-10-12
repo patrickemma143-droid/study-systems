@@ -43,12 +43,25 @@ export function formatClock(totalSeconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** Read a saved value. Anything missing, broken or of the wrong type gives back the fallback. */
 export function store<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
+    if (!v) return fallback;
+    const parsed = JSON.parse(v);
+    if (parsed === null || parsed === undefined) return fallback;
+    if (fallback !== null && fallback !== undefined && typeof parsed !== typeof fallback) return fallback;
+    return parsed as T;
   } catch {
     return fallback;
+  }
+}
+
+export function forget(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
   }
 }
 
