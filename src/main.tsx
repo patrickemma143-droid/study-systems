@@ -40,6 +40,7 @@ const CheatSheet = lazyPage(() => import('./pages/CheatSheet'));
 const Profile = lazyPage(() => import('./pages/Profile'));
 const Admin = lazyPage(() => import('./pages/Admin'));
 const Plan = lazyPage(() => import('./pages/Plan'));
+const Ranks = lazyPage(() => import('./pages/Ranks'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -70,6 +71,7 @@ function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/plan" element={<Plan />} />
+          <Route path="/ranks" element={<Ranks />} />
           <Route path="/pack/:id" element={<PackHome />} />
           <Route path="/pack/:id/learn/:chunk" element={<Lesson />} />
           <Route path="/pack/:id/cards" element={<Flashcards />} />

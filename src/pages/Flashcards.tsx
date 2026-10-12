@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { Check, CircleHelp, EyeOff, Keyboard, Pencil, PartyPopper, Volume2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleHelp, EyeOff, Keyboard, Pencil, PartyPopper, Trophy, Undo2, Volume2, X } from 'lucide-react';
 import { previewLabel, type Rating } from '@shared/srs';
 import { markTyped, type TypedMark } from '@shared/engine/typed';
 import { api, type Card } from '../api';
@@ -38,12 +38,20 @@ export default function Flashcards() {
   const [typed, setTyped] = useState('');
   const [mark, setMark] = useState<TypedMark | null>(null);
   const shownAt = useRef(Date.now());
+  // Cards already rated in this session, so you can step back and look again (or change a rating)
+  const [history, setHistory] = useState<{ card: Card; rating: Rating; points: number }[]>([]);
+  const [back, setBack] = useState(0);
+  const [changing, setChanging] = useState(false);
+  const [earned, setEarned] = useState(0);
 
   const load = useCallback(async () => {
     setQueue(null);
     setPos(0);
     setFlipped(false);
     setDone({ reviewed: 0, again: 0, good: 0 });
+    setHistory([]);
+    setBack(0);
+    setEarned(0);
     const q = new URLSearchParams({ mode, limit: mode === 'all' ? '200' : '40' });
     if (packId) q.set('packId', String(packId));
     if (chunks) q.set('chunks', chunks);
@@ -80,7 +88,9 @@ export default function Flashcards() {
       if (!card || busy) return;
       setBusy(true);
       try {
-        const r = await api<{ card: Card }>(`/study/cards/${card.id}/review`, { body: { rating, day: today(), typed: !!mark } });
+        const r = await api<{ card: Card; points: number }>(`/study/cards/${card.id}/review`, { body: { rating, day: today(), typed: !!mark, typedText: mark ? typed : undefined } });
+        setHistory((h) => [...h, { card, rating, points: r.points || 0 }]);
+        setEarned((n) => n + (r.points || 0));
         setDone((d) => ({ reviewed: d.reviewed + 1, again: d.again + (rating === 1 ? 1 : 0), good: d.good + (rating >= 3 ? 1 : 0) }));
         setQueue((q) => {
           if (!q) return q;
@@ -97,12 +107,59 @@ export default function Flashcards() {
         setBusy(false);
       }
     },
-    [card, busy, packId, toast, mark],
+    [card, busy, packId, toast, mark, typed],
   );
+
+  /** Change the rating of a card you already answered (looking back). */
+  async function rerate(rating: Rating) {
+    const idx = history.length - back;
+    const entry = history[idx];
+    if (!entry || busy) return;
+    setBusy(true);
+    try {
+      await api(`/study/cards/${entry.card.id}/undo`, { method: 'POST' });
+      const r = await api<{ card: Card; points: number }>(`/study/cards/${entry.card.id}/review`, { body: { rating, day: today() } });
+      setHistory((h) => h.map((x, i) => (i === idx ? { ...x, rating, points: r.points || 0 } : x)));
+      setEarned((n) => n - entry.points + (r.points || 0));
+      setQueue((q) => {
+        if (!q) return q;
+        let next = q;
+        if (entry.rating === 1) {
+          // remove the extra copy that "Again" queued for later
+          const at = next.map((c) => c.id).lastIndexOf(entry.card.id);
+          if (at >= pos) next = next.filter((_, i) => i !== at);
+        }
+        if (rating === 1) next = [...next, { ...entry.card, ...r.card }];
+        return next;
+      });
+      setDone((d) => ({ ...d, again: d.again - (entry.rating === 1 ? 1 : 0) + (rating === 1 ? 1 : 0), good: d.good - (entry.rating >= 3 ? 1 : 0) + (rating >= 3 ? 1 : 0) }));
+      setChanging(false);
+      toast('Rating changed');
+    } catch (e: any) {
+      toast(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const lookingBack = back > 0 ? history[history.length - back] : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editing || (e.target as HTMLElement).closest('input,textarea')) return;
+      if (e.key === 'ArrowLeft' && back < history.length) {
+        setBack((b) => b + 1);
+        setChanging(false);
+        return;
+      }
+      if (e.key === 'ArrowRight' && back > 0) {
+        setBack((b) => b - 1);
+        setChanging(false);
+        return;
+      }
+      if (back > 0) {
+        if (changing && ['1', '2', '3', '4'].includes(e.key)) rerate(Number(e.key) as Rating);
+        return;
+      }
       if (e.key === 'Enter' && flipped && mark) {
         e.preventDefault();
         rate(mark.suggested);
@@ -114,7 +171,7 @@ export default function Flashcards() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flipped, rate, editing, mark, typeMode, typed, card]);
+  }, [flipped, rate, editing, mark, typeMode, typed, card, back, history, changing]);
 
   async function saveEdit() {
     if (!card || !editing) return;
@@ -166,8 +223,58 @@ export default function Flashcards() {
         </div>
       </div>
 
+      {queue && (history.length > 0 || back > 0) && (
+        <div className="row between" style={{ marginBottom: 10 }}>
+          <button className="btn ghost small" onClick={() => { setBack((b) => Math.min(history.length, b + 1)); setChanging(false); }} disabled={back >= history.length} title="Previous card (←)">
+            <ArrowLeft size={16} /> Previous card
+          </button>
+          {back > 0 && (
+            <button className="btn ghost small" onClick={() => { setBack((b) => b - 1); setChanging(false); }} title="Next (→)">
+              {back === 1 ? 'Back to where I was' : 'Next card'} <ArrowRight size={16} />
+            </button>
+          )}
+        </div>
+      )}
       {!queue ? (
         <Loading />
+      ) : lookingBack ? (
+        <div>
+          <div className="small muted" style={{ marginBottom: 8, textAlign: 'center' }}>
+            Looking back: card {history.length - back + 1} of the {history.length} you’ve answered
+          </div>
+          <div className="card-stage">
+            <div className="flashcard flipped" role="group" aria-label={`Question: ${lookingBack.card.front}. Answer: ${lookingBack.card.back}`}>
+              <div className="face front">
+                <div className="content">{lookingBack.card.front}</div>
+              </div>
+              <div className="face back">
+                <div className="kind">
+                  <span>{lookingBack.card.front.length > 70 ? `${lookingBack.card.front.slice(0, 68)}…` : lookingBack.card.front}</span>
+                </div>
+                <div className="content">{lookingBack.card.back}</div>
+                <div className="tap">You rated this: {RATINGS.find((r) => r.r === lookingBack.rating)?.label}</div>
+              </div>
+            </div>
+          </div>
+          {changing ? (
+            <div className="ratings">
+              {RATINGS.map((x) => (
+                <button key={x.r} className={`rate ${x.cls} ${x.r === lookingBack.rating ? 'suggested' : ''}`} onClick={() => rerate(x.r)} disabled={busy}>
+                  {x.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+              <button className="btn" onClick={() => setChanging(true)}>
+                <Undo2 size={16} /> Change my rating
+              </button>
+              <button className="btn primary" onClick={() => setBack(0)}>
+                Continue where I was <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
       ) : !card ? (
         <div className="sheet empty">
           {done.reviewed > 0 ? (
@@ -177,6 +284,11 @@ export default function Flashcards() {
               <p className="muted">
                 You reviewed {plural(done.reviewed, 'card')}. {done.good} felt good{done.again ? `, ${done.again} needed another go` : ''}. The scheduler will bring each one back at the right time.
               </p>
+              {earned > 0 && (
+                <p className="row" style={{ justifyContent: 'center', gap: 6, color: 'var(--biro)', fontWeight: 500 }}>
+                  <Trophy size={18} /> +{earned} memory points this session
+                </p>
+              )}
             </>
           ) : (
             <>

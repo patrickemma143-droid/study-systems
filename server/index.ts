@@ -13,6 +13,7 @@ import { studyRouter } from './routes/study';
 import { aiRouter } from './routes/ai';
 import { adminRouter } from './routes/admin';
 import { planRouter } from './routes/plan';
+import { pointsRouter } from './routes/points';
 import { startReminders } from './notify';
 
 const app = express();
@@ -72,6 +73,7 @@ app.use('/api/study', studyRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/plan', planRouter);
+app.use('/api/points', pointsRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Serve the built web app in production (npm run build && npm start)

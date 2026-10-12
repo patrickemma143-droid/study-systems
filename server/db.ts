@@ -245,6 +245,33 @@ migrations['003_personal'] = {
   },
 };
 
+
+migrations['004_points'] = {
+  async up(k) {
+    // Points earned for real study work, grouped by week for the leaderboard
+    await createIfMissing(k, 'points_events', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('week', 10).notNullable();
+      t.string('day', 10).notNullable();
+      t.string('category', 12).notNullable();
+      t.integer('points').notNullable();
+      t.string('reason', 160).notNullable();
+      t.integer('score');
+      t.string('dedupe', 120).notNullable().unique();
+      t.bigInteger('created_at').notNullable();
+      t.index(['week', 'user_id']);
+      t.index(['user_id', 'day']);
+    });
+    if (!(await k.schema.hasColumn('users', 'leaderboard'))) await k.schema.alterTable('users', (t) => t.boolean('leaderboard').notNullable().defaultTo(true));
+    // Lets a student step back and change a flashcard rating
+    if (!(await k.schema.hasColumn('reviews', 'prev_state'))) await k.schema.alterTable('reviews', (t) => t.text('prev_state'));
+  },
+  async down(k) {
+    await k.schema.dropTableIfExists('points_events');
+  },
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

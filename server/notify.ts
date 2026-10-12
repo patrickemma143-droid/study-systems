@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { db, now } from './db';
 import { config } from './config';
+import { lastWeek, leaderboard } from './points';
 
 let keys: { publicKey: string; privateKey: string } | null = null;
 
@@ -122,12 +123,39 @@ async function tick() {
   }
 }
 
+/** Monday morning: tell each student how they did last week. */
+async function weeklyResults(t: number) {
+  const users = await db('users').where({ reminders_on: true }).select('id', 'name', 'tz_offset', 'university');
+  const week = lastWeek();
+  let board: Awaited<ReturnType<typeof leaderboard>> | null = null;
+  const uniBoards = new Map<string, Awaited<ReturnType<typeof leaderboard>>>();
+  for (const u of users as any[]) {
+    const local = localNow(Number(u.tz_offset) || 0, t);
+    if (new Date(`${local.day}T12:00:00Z`).getUTCDay() !== 1 || local.minutes < 8 * 60 || local.minutes > 8 * 60 + 30) continue;
+    if (!(await once(u.id, 'weekly', `weekly-${u.id}-${week}`))) continue;
+    board ??= await leaderboard(week);
+    const me = board.find((r) => r.userId === u.id);
+    if (!me) continue;
+    let where = `#${me.rank} of ${board.length} overall`;
+    if (u.university) {
+      const key = String(u.university).trim().toLowerCase();
+      if (!uniBoards.has(key)) uniBoards.set(key, await leaderboard(week, { university: u.university }));
+      const r = uniBoards.get(key)!.find((x) => x.userId === u.id);
+      if (r) where = `#${r.rank} at ${u.university}`;
+    }
+    await sendToUser(u.id, { title: 'Weekly results are out', body: `You finished ${where} with ${me.total} points. A new week starts now.`, url: '/ranks', tag: 'weekly' });
+  }
+}
+
 let started = false;
 /** Start the reminder loop (once). Runs every minute; errors never stop the server. */
 export function startReminders() {
   if (started || process.env.REMINDERS_OFF === 'true') return;
   started = true;
-  const run = () => tick().catch((err) => console.warn('Reminder check failed:', err?.message || err));
+  const run = () =>
+    tick()
+      .then(() => weeklyResults(now()))
+      .catch((err) => console.warn('Reminder check failed:', err?.message || err));
   setTimeout(run, 15_000);
   setInterval(run, 60_000).unref?.();
 }

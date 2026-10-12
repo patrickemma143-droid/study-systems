@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
 import { recallNow, schedule, type Rating } from '../../shared/srs';
+import { onActivity, onBlurt, onExplain, onQuiz, onReview, removeAward } from '../points';
 import type { QuizQuestion, StudyPack } from '../../shared/engine/types';
 
 export const studyRouter = Router();
@@ -76,7 +77,7 @@ studyRouter.get('/cards', async (req, res) => {
 
 studyRouter.post('/cards/:id/review', async (req, res) => {
   const uid = userId(res);
-  const body = z.object({ rating: z.number().int().min(1).max(4), day, typed: z.boolean().optional() }).parse(req.body);
+  const body = z.object({ rating: z.number().int().min(1).max(4), day, typed: z.boolean().optional(), typedText: z.string().max(2000).optional() }).parse(req.body);
   const card = await db('cards').join('packs', 'packs.id', 'cards.pack_id').where({ 'cards.id': Number(req.params.id), 'cards.user_id': uid }).select('cards.*', 'packs.exam_date').first();
   if (!card) throw new HttpError(404, 'Card not found.');
   const t = now();
@@ -94,9 +95,26 @@ studyRouter.post('/cards/:id/review', async (req, res) => {
     t,
     card.exam_date,
   );
+  const prev = { ease: card.ease, stability: card.stability, difficulty: card.difficulty, interval_days: card.interval_days, reps: card.reps, lapses: card.lapses, due_at: card.due_at, last_reviewed_at: card.last_reviewed_at };
   await db('cards').where({ id: card.id }).update(next);
-  await db('reviews').insert({ user_id: uid, card_id: card.id, rating: body.rating, interval_days: next.interval_days, reviewed_at: t, day: body.day, typed: !!body.typed });
-  res.json({ card: cardOut({ ...card, ...next }) });
+  const [reviewId] = await db('reviews').insert({ user_id: uid, card_id: card.id, rating: body.rating, interval_days: next.interval_days, reviewed_at: t, day: body.day, typed: !!body.typed, prev_state: JSON.stringify(prev) });
+  const points = await onReview(uid, Number(reviewId), { ...card, ...next }, body.rating, body.typed ? body.typedText : null).catch(() => 0);
+  res.json({ card: cardOut({ ...card, ...next }), points, reviewId: Number(reviewId) });
+});
+
+/** Step back: undo your latest rating of this card (within 30 minutes) so you can rate it again. */
+studyRouter.post('/cards/:id/undo', async (req, res) => {
+  const uid = userId(res);
+  const cardId = Number(req.params.id);
+  const last = await db('reviews').where({ user_id: uid, card_id: cardId }).andWhere('reviewed_at', '>=', now() - 30 * 60000).orderBy('id', 'desc').first();
+  if (!last || !last.prev_state) throw new HttpError(409, 'That rating can no longer be changed.');
+  const prev = parseJSON<Record<string, unknown> | null>(last.prev_state, null);
+  if (!prev) throw new HttpError(409, 'That rating can no longer be changed.');
+  await db('cards').where({ id: cardId, user_id: uid }).update(prev);
+  await db('reviews').where({ id: last.id }).delete();
+  await removeAward(`review-${last.id}`);
+  const row = await db('cards').join('packs', 'packs.id', 'cards.pack_id').where({ 'cards.id': cardId }).select('cards.*', 'packs.title as pack_title', 'packs.exam_date').first();
+  res.json({ card: cardOut(row) });
 });
 
 const cardEdit = z.object({ front: z.string().trim().min(1).max(2000), back: z.string().trim().min(1).max(4000), hint: z.string().trim().max(255).optional() });
@@ -146,7 +164,8 @@ studyRouter.post('/quiz', async (req, res) => {
   for (const w of body.wrong.slice(0, 30)) {
     await db('cards').where({ user_id: uid, pack_id: w.packId, chunk_index: w.chunk }).andWhere('due_at', '>', now()).update({ due_at: now() });
   }
-  res.status(201).json({ ok: true });
+  const points = await onQuiz(uid, body.packId, body.score, body.total).catch(() => 0);
+  res.status(201).json({ ok: true, points });
 });
 
 /** Interleaved practice: questions mixed from all your packs. */
@@ -223,7 +242,12 @@ studyRouter.post('/notes', async (req, res) => {
     }
   }
   const [id] = await db('notes').insert({ user_id: uid, pack_id: body.packId, chunk_index: body.chunk ?? null, kind: body.kind, content, created_at: now() });
-  res.status(201).json({ id });
+  // The server reads the saved work itself and marks it for points.
+  const c = body.content as any;
+  let result = { points: 0, score: 0, copied: false };
+  if (body.kind === 'feynman' && body.chunk != null && typeof c.text === 'string') result = await onExplain(uid, body.packId, body.chunk, c.text, !!c.peeked).catch(() => result);
+  if (body.kind === 'blurt' && typeof c.text === 'string') result = await onBlurt(uid, body.packId, Array.isArray(c.lessons) ? c.lessons.filter((x: unknown) => Number.isInteger(x)) : [], c.text).catch(() => result);
+  res.status(201).json({ id, ...result });
 });
 
 studyRouter.delete('/notes/:id', async (req, res) => {
@@ -242,6 +266,7 @@ studyRouter.post('/activity', async (req, res) => {
     if (!own) packId = null;
   }
   await db('activity').insert({ user_id: uid, pack_id: packId, method: body.method, minutes: Math.round(body.minutes * 10) / 10, day: body.day, created_at: now() });
+  await onActivity(uid).catch(() => 0);
   res.json({ ok: true });
 });
 

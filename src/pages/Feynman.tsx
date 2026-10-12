@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { EyeOff, Mic, MicOff, RotateCcw, Save } from 'lucide-react';
+import { Eye, EyeOff, Mic, MicOff, RotateCcw, Save } from 'lucide-react';
 import { checkRecall, type RecallCheck } from '@shared/engine/recall';
 import { api } from '../api';
 import { AiFeedback } from '../components/AiPanels';
@@ -23,6 +23,8 @@ export default function Feynman() {
   const [text, setText] = useState('');
   const [check, setCheck] = useState<RecallCheck | null>(null);
   const [listening, setListening] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const [peeked, setPeeked] = useState(false);
   const stopRef = useRef<() => void>(() => {});
 
   const chunk = chunkIndex !== null ? data?.pack.data.chunks[chunkIndex] : undefined;
@@ -32,6 +34,8 @@ export default function Feynman() {
     setStep('study');
     setText('');
     setCheck(null);
+    setPeek(false);
+    setPeeked(false);
   }, [chunkIndex]);
   useEffect(() => () => stopRef.current(), []);
 
@@ -91,9 +95,11 @@ export default function Feynman() {
 
   async function saveResult() {
     if (!check) return;
-    await api('/study/notes', { body: { packId: id, chunk: chunk!.index, kind: 'feynman', content: { text, score: check.score } } });
+    const r = await api<{ points: number; copied: boolean }>('/study/notes', { body: { packId: id, chunk: chunk!.index, kind: 'feynman', content: { text, score: check.score, peeked } } });
     await setProgress(id, chunk!.index, { recall: check.score, ...(check.score >= 70 ? { status: 'understood' } : {}) });
-    toast(check.score >= 70 ? 'Saved. Lesson marked as understood.' : 'Saved. Have another go after re-reading.');
+    if (r.copied) toast('Saved, but it looks copied from the notes, so no points. Explain it in your own words.');
+    else if (r.points > 0) toast(`Saved. +${r.points} explainer points${check.score >= 70 ? ', lesson understood' : ''}.`);
+    else toast(check.score >= 70 ? 'Saved. Lesson marked as understood.' : 'Saved. Have another go after re-reading.');
   }
 
   const steps: { id: Step; label: string }[] = [
@@ -118,7 +124,17 @@ export default function Feynman() {
       <ol className="steps" style={{ listStyle: 'none', padding: 0, margin: '0 0 18px' }}>
         {steps.map((s, i) => (
           <li key={s.id} className={`step ${i === stepIndex ? 'on' : ''} ${i < stepIndex ? 'done' : ''}`}>
-            <b>{i + 1}</b> {s.label}
+            <button
+              type="button"
+              className="step-btn"
+              disabled={s.id === 'check' && !check}
+              onClick={() => {
+                if (s.id === 'study' && step === 'explain') setPeeked(true);
+                setStep(s.id);
+              }}
+            >
+              <b>{i + 1}</b> {s.label}
+            </button>
           </li>
         ))}
       </ol>
@@ -158,6 +174,26 @@ export default function Feynman() {
               Explain “{chunk.title}” to a friend who missed the lecture. Use short sentences and everyday words. If you get stuck, that is the part to go back to.
             </div>
           </div>
+          {peek && (
+            <div className="sheet tight" style={{ borderLeft: '5px solid var(--hl-yellow)' }}>
+              <div className="row between">
+                <strong className="small">Your notes</strong>
+                <button className="btn ghost small" onClick={() => setPeek(false)}>
+                  <EyeOff size={15} /> Hide the notes
+                </button>
+              </div>
+              <p style={{ fontWeight: 500, margin: '6px 0' }}>
+                <Highlighted text={chunk.nutshell} terms={glossary} />
+              </p>
+              <ul className="small" style={{ margin: 0, paddingLeft: 20 }}>
+                {chunk.keyPoints.map((p, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>
+                    <Highlighted text={p} terms={glossary} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <textarea className="textarea ruled" style={{ minHeight: 260 }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Start with: “Basically, this is about…”" autoFocus aria-label="Your explanation" />
           <div className="row between">
             <div className="row">
@@ -169,9 +205,18 @@ export default function Feynman() {
               <span className="small muted">{text.trim() ? `${text.trim().split(/\s+/).length} words` : ''}</span>
             </div>
             <div className="row">
-              <button className="btn ghost" onClick={() => setStep('study')}>
-                Peek at the notes
-              </button>
+              {!peek && (
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    setPeek(true);
+                    setPeeked(true);
+                  }}
+                  title="Your explanation stays here. Peeking halves the points for this one."
+                >
+                  <Eye size={16} /> Peek at the notes
+                </button>
+              )}
               <button className="btn primary big" onClick={runCheck} disabled={text.trim().split(/\s+/).length < 5}>
                 Check my explanation
               </button>

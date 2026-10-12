@@ -4,6 +4,7 @@ import { LogOut, Monitor, Moon, Sun } from 'lucide-react';
 import { api, type User } from '../api';
 import { useAuth } from '../auth';
 import { AiPlanCard } from '../components/AiPanels';
+import { PointsCard } from '../components/PointsCard';
 import { useToast } from '../components/ui';
 import { forget } from '../lib/util';
 
@@ -101,6 +102,8 @@ export default function Profile() {
           <button className="btn primary">Save profile</button>
         </div>
       </form>
+
+      <PointsCard />
 
       <AiPlanCard />
 

@@ -4,7 +4,7 @@ import { RotateCcw, X } from 'lucide-react';
 import { shuffle } from '@shared/engine/text';
 import { api, type MixedQuestion } from '../api';
 import { QuizRunner, type QuizResult, type RunnerQuestion } from '../components/QuizRunner';
-import { Crumbs, ErrorState, Loading, Ring } from '../components/ui';
+import { Crumbs, ErrorState, Loading, Ring, useToast } from '../components/ui';
 import { invalidatePack, usePack, useStudyTimer } from '../lib/usePack';
 
 const COUNTS = [5, 10, 20, 0];
@@ -12,6 +12,7 @@ const COUNTS = [5, 10, 20, 0];
 export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
   const params = useParams();
   const packId = mixed ? null : Number(params.id);
+  const toast = useToast();
   const { data, error } = usePack(packId ?? -1);
   useStudyTimer(mixed ? 'mixed-quiz' : 'quiz', packId);
 
@@ -48,7 +49,8 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
     setResult(r);
     const wrong = r.answers.filter((a) => !a.correct).map((a) => ({ packId: a.q.packId ?? packId!, chunk: a.q.chunk }));
     const uniq = [...new Map(wrong.map((w) => [`${w.packId}:${w.chunk}`, w])).values()];
-    await api('/study/quiz', { body: { packId, mode: mixed ? 'mixed' : 'quiz', score: r.score, total: r.total, wrong: uniq, details: r.answers.map((a) => ({ id: a.q.id, ok: a.correct })) } }).catch(() => {});
+    const saved = await api<{ points?: number }>('/study/quiz', { body: { packId, mode: mixed ? 'mixed' : 'quiz', score: r.score, total: r.total, wrong: uniq, details: r.answers.map((a) => ({ id: a.q.id, ok: a.correct })) } }).catch(() => null);
+    if (saved?.points) toast(`+${saved.points} fast learner points`);
     if (packId) invalidatePack(packId);
   }
 

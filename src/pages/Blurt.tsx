@@ -42,8 +42,8 @@ export default function Blurt() {
 
   async function save() {
     if (!check) return;
-    await api('/study/notes', { body: { packId: id, chunk: selected.length === 1 ? selected[0] : null, kind: 'blurt', content: { text, score: check.score, lessons: selected } } });
-    toast('Saved to your notes');
+    const r = await api<{ points: number; copied: boolean }>('/study/notes', { body: { packId: id, chunk: selected.length === 1 ? selected[0] : null, kind: 'blurt', content: { text, score: check.score, lessons: selected } } });
+    toast(r.copied ? 'Saved, but it looks copied from the notes, so no points.' : r.points > 0 ? `Saved. +${r.points} explainer points.` : 'Saved to your notes');
   }
 
   return (

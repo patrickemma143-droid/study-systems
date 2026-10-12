@@ -316,7 +316,7 @@ button.term {
     inset: auto 0 0 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     background: var(--paper);
     border-top: 1px solid var(--line);
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
@@ -1530,4 +1530,50 @@ kbd {
   .tabbar a {
     font-size: 0.7rem;
   }
+}
+.step-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.step-btn:disabled {
+  cursor: default;
+}
+
+/* ── rankings ── */
+.podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.podium-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+.podium-card.me,
+.data-table tr.me-row td {
+  background: var(--biro-soft);
+}
+.podium-points {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--biro);
+}
+@media (max-width: 560px) {
+  .podium {
+    grid-template-columns: 1fr;
+  }
+}
+.podium > .sheet {
+  margin-top: 0;
 }

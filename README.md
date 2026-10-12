@@ -109,6 +109,21 @@ The engine lives in `shared/engine/` and is plain TypeScript with no AI.
 - **Typed answers**: flashcards can be answered by typing. Short answers are matched forgivingly (small typos allowed); longer ones are marked on the key words included. The app suggests Again / Hard / Good / Easy, and Enter accepts it.
 - **Cram levels**: Chill, Steady, Intense and Extreme, suggested from the exam date and how many lessons are understood. Extreme ("paper tomorrow, nothing read") picks the most examinable lessons that fit before bedtime, teaches them fast in 25-minute sprints with breaks, tests them, lists what was left out, and ends with sleep and a morning plan.
 
+## Points and weekly rankings
+
+Students earn points only for work the server can check, in four kinds:
+
+| Kind | Earned for |
+| --- | --- |
+| Memory | Flashcards remembered. Typed answers are re-marked on the server: right 3, nearly right 2; a self-rated Good 1. +15 for clearing all due cards in a day. |
+| Fast learner | +10 for proving a lesson (all its cards right, or explained at 70%+), doubled within a day of adding the notes, 1.5× within 3 days. Quizzes: 2 per correct answer, first two a day per pack. |
+| Explainer | Feynman explanations and blurts, re-marked on the server against the lesson. Text copied from the notes (runs of 6+ words) earns nothing; peeking at the notes halves the points. The best attempt per lesson per week counts. |
+| Consistency | +10 for reaching the daily study goal. |
+
+Each kind has a daily cap. Weeks run Monday to Sunday (Kampala time). `/ranks` shows this week live and last week's final results, for everyone, the student's university, or their course, with each student's university, course and best quiz and explanation scores. Every Monday at 08:00 students with reminders on get their result. Students can hide themselves from the rankings on their profile.
+
+Flashcards also gained **Previous card**: step back through the cards answered in this session (← / →) and change a rating within 30 minutes. In the Feynman technique, **Peek at the notes** now opens the notes beside your explanation instead of leaving it.
+
 ## AI helpers (optional)
 
 Everything above works with no AI. Add one API key and these appear for logged-in students:
@@ -241,6 +256,8 @@ charis-study/
 │  ├─ routes/admin.ts      admin overview, AI usage and cost, Pro upgrades
 │  ├─ routes/plan.ts       timetable, study settings, reminder devices, calendar export
 │  ├─ notify.ts            web push reminders (checks every minute)
+│  ├─ points.ts            study points, copy check, weekly leaderboard
+│  ├─ routes/points.ts     my points, rankings, ranking visibility
 │  ├─ ai/                  AI providers, prompts, shared cache and daily allowances
 │  └─ services/wikipedia.ts
 └─ src/                    React web app (Vite)
