@@ -37,6 +37,8 @@ export interface User {
   dailyGoal: number;
   preference: 'reading' | 'listening' | 'seeing' | 'doing' | null;
   createdAt: number;
+  plan?: 'free' | 'pro';
+  isAdmin?: boolean;
 }
 
 export interface PackSummary {

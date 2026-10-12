@@ -78,6 +78,46 @@ function webPort(): number {
   return p;
 }
 
+// ─── AI (optional) ───────────────────────────────────────────
+// No key → the app stays fully API-free. Set GEMINI_API_KEY or ANTHROPIC_API_KEY (or AI_PROVIDER + AI_API_KEY).
+export type AiKind = 'simplify' | 'tutor' | 'feedback';
+type Limits = Record<AiKind, number>;
+
+function parseLimits(text: string | undefined, fallback: Limits): Limits {
+  const out = { ...fallback };
+  for (const part of (text || '').split(',')) {
+    const [k, v] = part.split('=').map((x) => x.trim());
+    if (k in out && v !== undefined && !Number.isNaN(Number(v))) out[k as AiKind] = Math.max(0, Number(v));
+  }
+  return out;
+}
+
+const aiProvider = (env.AI_PROVIDER || (env.GEMINI_API_KEY ? 'gemini' : env.ANTHROPIC_API_KEY ? 'claude' : 'none')).toLowerCase() as 'gemini' | 'claude' | 'mock' | 'none';
+const DEFAULT_MODEL = { gemini: 'gemini-3.5-flash-lite', claude: 'claude-haiku-5-5', mock: 'mock-model', none: '' } as const;
+
+export const ai = {
+  provider: aiProvider,
+  key: env.AI_API_KEY || (aiProvider === 'gemini' ? env.GEMINI_API_KEY : aiProvider === 'claude' ? env.ANTHROPIC_API_KEY : '') || '',
+  model: env.AI_MODEL || DEFAULT_MODEL[aiProvider] || '',
+  get enabled() {
+    return this.provider === 'mock' || ((this.provider === 'gemini' || this.provider === 'claude') && !!this.key);
+  },
+  /** Gemini only: send a thinking level (e.g. "minimal") — leave empty to use the model's default. */
+  geminiThinkingLevel: env.AI_GEMINI_THINKING_LEVEL || '',
+  /** Optional price override, USD per 1M tokens (otherwise a built-in table is used). */
+  priceInput: env.AI_PRICE_INPUT ? Number(env.AI_PRICE_INPUT) : null,
+  priceOutput: env.AI_PRICE_OUTPUT ? Number(env.AI_PRICE_OUTPUT) : null,
+  limits: {
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30 }),
+  },
+};
+
+export const adminEmails = (env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
 export const config = {
   root,
   dataDir,

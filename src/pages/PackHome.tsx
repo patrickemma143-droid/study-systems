@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BookOpenCheck, CalendarDays, Check, ExternalLink, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { AiPackExplainer } from '../components/AiPanels';
 import { Bar, Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { METHODS, methodById, recommend } from '../methods';
 import { invalidatePack, usePack } from '../lib/usePack';
@@ -238,6 +239,7 @@ export default function PackHome() {
             <BookOpenCheck size={16} /> {done ? 'Continue' : 'Start lesson 1'}
           </Link>
         </div>
+        <AiPackExplainer packId={id} lessons={d.chunks.map((c) => c.index)} />
         <div className="sheet" style={{ padding: '4px 20px' }}>
           <div className="list">
             {d.chunks.map((c) => {

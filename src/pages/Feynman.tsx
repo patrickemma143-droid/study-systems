@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { EyeOff, Mic, MicOff, RotateCcw, Save } from 'lucide-react';
 import { checkRecall, type RecallCheck } from '@shared/engine/recall';
 import { api } from '../api';
+import { AiFeedback } from '../components/AiPanels';
 import { Highlighted } from '../components/Highlighted';
 import { RecallResult } from '../components/RecallResult';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
@@ -182,6 +183,7 @@ export default function Feynman() {
       {step === 'check' && check && (
         <div className="stack">
           <RecallResult check={check} />
+          <AiFeedback packId={id} chunks={[chunk.index]} text={text} mode="feynman" />
           <div className="row between">
             <button className="btn" onClick={() => setStep('explain')}>
               <RotateCcw size={18} /> Improve my explanation

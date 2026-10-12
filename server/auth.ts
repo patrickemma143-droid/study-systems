@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { config } from './config';
+import { adminEmails, config } from './config';
 import { db, now } from './db';
 
 const COOKIE = 'cs_session';
@@ -57,6 +57,8 @@ function publicUser(u: any) {
     course: u.course,
     dailyGoal: u.daily_goal,
     preference: u.preference,
+    plan: u.plan === 'pro' || adminEmails.includes(String(u.email).toLowerCase()) ? 'pro' : 'free',
+    isAdmin: adminEmails.includes(String(u.email).toLowerCase()),
     createdAt: Number(u.created_at),
   };
 }

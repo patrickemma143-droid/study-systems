@@ -140,6 +140,47 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
       }
     },
   },
+  '002_ai': {
+    async up(k) {
+      if (!(await k.schema.hasColumn('users', 'plan'))) {
+        await k.schema.alterTable('users', (t) => {
+          t.string('plan', 10).notNullable().defaultTo('free');
+        });
+      }
+      // AI results shared by everyone: the same lecture text is only ever sent to the AI once.
+      await createIfMissing(k, 'ai_cache', (t) => {
+        t.increments('id').primary();
+        t.string('cache_key', 64).notNullable().unique();
+        t.string('kind', 20).notNullable();
+        t.string('model', 60).notNullable();
+        t.text('output', 'longtext').notNullable();
+        t.integer('tokens_in').notNullable().defaultTo(0);
+        t.integer('tokens_out').notNullable().defaultTo(0);
+        t.integer('hits').notNullable().defaultTo(0);
+        t.bigInteger('created_at').notNullable();
+      });
+      // One row per AI request: powers daily limits and the admin cost report.
+      await createIfMissing(k, 'ai_events', (t) => {
+        t.increments('id').primary();
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('day', 10).notNullable();
+        t.string('kind', 20).notNullable();
+        t.string('model', 60).notNullable();
+        t.boolean('cached').notNullable().defaultTo(false);
+        t.integer('tokens_in').notNullable().defaultTo(0);
+        t.integer('tokens_out').notNullable().defaultTo(0);
+        t.integer('cost_micro_usd').notNullable().defaultTo(0);
+        t.bigInteger('created_at').notNullable();
+        t.index(['user_id', 'day']);
+        t.index(['day']);
+      });
+    },
+    async down(k) {
+      await k.schema.dropTableIfExists('ai_events');
+      await k.schema.dropTableIfExists('ai_cache');
+      if (await k.schema.hasColumn('users', 'plan')) await k.schema.alterTable('users', (t) => t.dropColumn('plan'));
+    },
+  },
 };
 
 export async function migrate(): Promise<void> {

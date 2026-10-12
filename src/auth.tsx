@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, type User } from './api';
+import { resetAiStatus } from './lib/ai';
 
 interface AuthState {
   user: User | null;
@@ -25,6 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('cs:unauthorized', onUnauthorized);
     return () => window.removeEventListener('cs:unauthorized', onUnauthorized);
   }, []);
+
+  const uid = user?.id ?? null;
+  useEffect(() => {
+    if (!loading) resetAiStatus(uid !== null);
+  }, [uid, loading]);
 
   const login = useCallback(async (email: string, password: string) => {
     const r = await api<{ user: User }>('/auth/login', { body: { email, password } });

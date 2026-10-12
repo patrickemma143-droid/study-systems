@@ -2,7 +2,7 @@
 
 Charis Study turns a lecture PDF, slides, Word notes, pasted text or **just a topic name** into bite-size lessons, then lets the student choose how to learn it. Every method is built on how memory works.
 
-It is a **Charis Creations** product. Version 1 is **API-free**: no AI keys and no cost per student. Everything runs on your own server.
+It is a **Charis Creations** product. The core app is **API-free**: no AI keys and no cost per student, and everything runs on your own server. Optional **AI helpers** (simple explanations, a tutor chat and AI marking) switch on when you add a Gemini or Claude API key. See [AI helpers](#ai-helpers-optional).
 
 ---
 
@@ -101,16 +101,47 @@ The engine lives in `shared/engine/` and is plain TypeScript with no AI.
 
 ---
 
-## Upgrading to AI later
+## AI helpers (optional)
 
-`buildStudyPack(blocks, opts)` in `shared/engine/index.ts` returns a `StudyPack` (see `shared/engine/types.ts`). To add AI:
+Everything above works with no AI. Add one API key and these appear for logged-in students:
 
-1. Create `server/services/ai.ts`. Send the chunk text to Gemini (it has a free tier) or Claude, and ask for JSON in the same `StudyPack` shape: simplified explanations, better questions and analogies.
-2. In `server/routes/packs.ts`, call it after `buildStudyPack` for Pro users, and merge or replace the fields.
-3. Use `checkRecall` as the free fallback, and add AI marking for Feynman explanations.
-4. Add an `/api/tutor` route for a "explain this differently" chat on each lesson.
+| Helper | Where | What it does |
+| --- | --- | --- |
+| **Explain it simply** | Every lesson, plus "Explain every lesson simply" on the pack page | Re-teaches the lesson in plain English with a local example, key points and exam-style questions (which can be added to flashcards) |
+| **Ask the tutor** | Bottom of every lesson | A short chat that answers from the student's own notes |
+| **AI marking** | Feynman and blurting results | Reads the answer for meaning, lists what was right, what is missing and any misunderstanding |
+| **Admin page** | `/admin` (admins only) | Students, AI use and estimated cost for today and 30 days, and a button to move a student to Pro |
 
-The `.env` file already has placeholders for `AI_PROVIDER` and `AI_API_KEY`.
+**Cost controls built in**
+
+- **Shared answers.** A simple explanation is stored against the lesson text. When a classmate opens the same notes, they get the stored answer: no AI call, no cost and none of their daily allowance. AI marking is cached the same way for identical answers.
+- **Daily allowances** per student, counted on the server and reset at midnight Kampala time (`TZ_OFFSET_HOURS`). Defaults: Free 10 explanations, 5 tutor questions, 3 AI marks; Pro 200, 60, 30.
+- **Small requests.** Only the lesson being studied is sent (capped at about 12,000 characters), the tutor sees just the last 8 messages, and replies have tight length limits. With Claude, the lesson notes are prompt-cached so follow-up questions are cheaper.
+- A per-student burst limit (40 AI requests a minute) stops runaway scripts.
+- Batch processing (half price, but answers arrive minutes later) is not used, because students want answers straight away. It is a later option for pre-explaining popular course packs overnight.
+
+**Switching it on (Hostinger)**
+
+1. Get a key. Gemini: [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Claude: [Claude Console](https://console.anthropic.com) → *API keys*.
+2. hPanel → your Node.js app → **Environment variables**, add `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) and `ADMIN_EMAILS` (your login email), then **Save and redeploy**.
+3. Open `/api/health`. The `engine` line should say `built-in + AI (gemini, …)`.
+
+**Privacy note.** On the Gemini API's **free tier**, Google may use the content you send to improve its products. Turn on billing for the project (paid tier) before real students' notes go through it. A Google AI Pro or "Gemini for students" subscription covers the Gemini app only; the API is billed separately.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | | Turns AI on with Gemini |
+| `ANTHROPIC_API_KEY` | | Turns AI on with Claude (used if no Gemini key) |
+| `AI_PROVIDER` | auto | `gemini`, `claude`, or `mock` (fake answers, for testing only) |
+| `AI_MODEL` | `gemini-3.5-flash-lite` / `claude-haiku-5-5` | Model name |
+| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3` | Daily allowance on Free |
+| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30` | Daily allowance on Pro |
+| `ADMIN_EMAILS` | | Comma-separated emails that can open `/admin` (admins always get Pro) |
+| `TZ_OFFSET_HOURS` | `3` | When "today" starts for allowances (3 = Kampala) |
+| `AI_PRICE_INPUT`, `AI_PRICE_OUTPUT` | built-in table | USD per million tokens, for the admin cost estimates |
+| `AI_GEMINI_THINKING_LEVEL` | model default | Gemini only, e.g. `minimal` or `low` |
+
+The code is in `server/ai/` (`providers.ts` talks to Gemini or Claude, `prompts.ts` holds the prompts, `service.ts` does caching, allowances and usage logging), `server/routes/ai.ts`, `server/routes/admin.ts`, `src/components/AiPanels.tsx` and `src/pages/Admin.tsx`. The API-free engine is still what builds every pack; the AI only adds to it.
 
 ---
 
@@ -177,7 +208,7 @@ See `.env.example`. MySQL settings can be given as `DB_*` (Hostinger's names), a
 charis-study/
 ├─ shared/                 code used by both server and browser
 │  ├─ engine/              the API-free study engine
-│  │  ├─ index.ts          buildStudyPack()  ← swap or extend this for AI
+│  │  ├─ index.ts          buildStudyPack()
 │  │  ├─ blocks.ts         text → structured blocks, cleaning
 │  │  ├─ chunker.ts        bite-size sections
 │  │  ├─ keyterms.ts       key-term extraction
@@ -198,6 +229,9 @@ charis-study/
 │  ├─ auth.ts              accounts (bcrypt + JWT cookie)
 │  ├─ routes/packs.ts      create, list and manage study packs; topic mode
 │  ├─ routes/study.ts      cards, reviews, quizzes, progress, notes, stats
+│  ├─ routes/ai.ts         optional AI helpers (explain, tutor, marking)
+│  ├─ routes/admin.ts      admin overview, AI usage and cost, Pro upgrades
+│  ├─ ai/                  AI providers, prompts, shared cache and daily allowances
 │  └─ services/wikipedia.ts
 └─ src/                    React web app (Vite)
    ├─ lib/extract/         PDF (pdf.js), Word (mammoth), PowerPoint (JSZip) readers
@@ -211,5 +245,6 @@ charis-study/
 - An offline mode (PWA service worker) so packs work without data.
 - OCR for scanned notes (Tesseract.js runs in the browser for free).
 - Class groups, so a lecturer or class rep can share a pack with a whole course.
-- A Pro tier with AI explanations and tutor chat (see the upgrade section above).
+- Mobile money payments (MTN MoMo, Airtel Money) so students can buy Pro themselves.
+- AI help when building a pack: OCR and explanation of scanned notes, diagrams and equations.
 - An Android app built from the same code with Capacitor.

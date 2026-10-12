@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LogOut, Monitor, Moon, Sun } from 'lucide-react';
 import { api, type User } from '../api';
 import { useAuth } from '../auth';
+import { AiPlanCard } from '../components/AiPanels';
 import { useToast } from '../components/ui';
 import { save, store } from '../lib/util';
 
@@ -97,6 +98,8 @@ export default function Profile() {
           <button className="btn primary">Save profile</button>
         </div>
       </form>
+
+      <AiPlanCard />
 
       <div className="sheet stack">
         <h2 style={{ fontSize: '1.15rem', margin: 0 }}>Appearance</h2>

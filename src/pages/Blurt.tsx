@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Play, RotateCcw, Save } from 'lucide-react';
 import { checkRecall, type RecallCheck } from '@shared/engine/recall';
 import { api } from '../api';
+import { AiFeedback } from '../components/AiPanels';
 import { RecallResult } from '../components/RecallResult';
 import { Crumbs, ErrorState, Loading, useCountdown, useToast } from '../components/ui';
 import { usePack, useStudyTimer } from '../lib/usePack';
@@ -112,6 +113,7 @@ export default function Blurt() {
       {phase === 'result' && check && (
         <div className="stack">
           <RecallResult check={check} groupTitle={(i) => points[i]?.title} />
+          <AiFeedback packId={id} chunks={chunks.slice(0, 40).map((c) => c.index)} text={text} mode="blurt" />
           <div className="row between">
             <button className="btn" onClick={() => setPhase('setup')}>
               <RotateCcw size={18} /> Blurt again

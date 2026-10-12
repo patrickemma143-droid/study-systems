@@ -359,7 +359,7 @@ button.term {
 }
 .grid > .sheet,
 .row > .sheet,
-.stack > .sheet {
+.stack > .sheet:first-child {
   margin-top: 0;
 }
 .stack > .sheet + .sheet {
@@ -410,6 +410,9 @@ button.term {
 }
 .stack > * + * {
   margin-top: 12px;
+}
+.stack > .hint {
+  display: block;
 }
 .between {
   justify-content: space-between;
@@ -1267,6 +1270,95 @@ kbd {
     border-right: 0;
     border-bottom: 2px solid var(--margin);
   }
+}
+
+/* ── AI helpers ── */
+.ai-card {
+  border-left: 4px solid var(--biro);
+}
+.ai-card h2,
+.ai-card h3 {
+  gap: 8px;
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.bubble.user {
+  align-self: flex-end;
+  background: var(--biro);
+  color: var(--on-biro);
+  border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
+}
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+.bubble.assistant p:last-child,
+.bubble.assistant ul:last-child {
+  margin-bottom: 0 !important;
+}
+.badge-pro {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--r-chip);
+  background: var(--biro-soft);
+  color: var(--biro);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.meter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--biro);
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.data-table th {
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+.data-table td.num,
+.data-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @media print {

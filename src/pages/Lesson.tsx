@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Layers, Lightbulb, MessageSquareText, Square, Volume2 } from 'lucide-react';
 import type { BodyPart } from '@shared/engine/types';
 import { api } from '../api';
+import { AiSimplify, TutorChat } from '../components/AiPanels';
 import { Highlighted, type Gloss } from '../components/Highlighted';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { setProgress, usePack, useStudyTimer } from '../lib/usePack';
@@ -135,6 +136,8 @@ export default function Lesson() {
         </div>
       </div>
 
+      <AiSimplify packId={id} chunk={index} />
+
       <div className="sheet" style={{ marginBottom: 18 }}>
         <h2 style={{ fontSize: '1.15rem' }}>The main points</h2>
         <ol style={{ margin: 0, paddingLeft: 22 }}>
@@ -220,6 +223,8 @@ export default function Lesson() {
           ))}
         </div>
       )}
+
+      <TutorChat packId={id} chunk={index} title={chunk.title} />
 
       <div className="sheet row between">
         <div className="row">

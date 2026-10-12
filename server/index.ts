@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
-import { config } from './config';
+import { ai, config } from './config';
 import { db, migrate } from './db';
 import { authRouter, HttpError } from './auth';
 import { packsRouter } from './routes/packs';
 import { studyRouter } from './routes/study';
+import { aiRouter } from './routes/ai';
+import { adminRouter } from './routes/admin';
 
 const app = express();
 app.disable('x-powered-by');
@@ -44,7 +46,7 @@ app.get('/api/health', async (_req, res) => {
   res.status(dbOk ? 200 : 503).json({
     ok: dbOk,
     database: dbOk ? `${config.dbClient} connected` : `${config.dbClient}: ${dbState.error}`,
-    engine: 'built-in (API-free)',
+    engine: ai.enabled ? `built-in + AI (${ai.provider}, ${ai.model})` : 'built-in (API-free)',
     node: process.version,
   });
 });
@@ -55,6 +57,8 @@ app.use('/api', (req, res, next) => {
 app.use('/api/auth', authRouter);
 app.use('/api/packs', packsRouter);
 app.use('/api/study', studyRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Serve the built web app in production (npm run build && npm start)
@@ -94,6 +98,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 app.listen(config.port, () => {
   console.log(`\n  Charis Study running on port ${config.port}`);
+  console.log(`  AI: ${ai.enabled ? `${ai.provider} (${ai.model})` : 'off (API-free)'}`);
   console.log(`  Database: ${config.dbClient === 'mysql' ? `MySQL (${config.mysql.database} on ${config.mysql.host})` : config.sqliteFile}`);
   if (!fs.existsSync(path.join(config.distDir, 'index.html'))) console.log('  Web app (dev): http://localhost:5173\n');
 });
