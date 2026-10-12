@@ -29,10 +29,15 @@ export const db = makeKnex();
  * Schema migrations live in code so the app sets up its own database on first run.
  * To change the schema later, append a new entry — never edit an old one.
  */
+/** Create a table only if it isn't there yet, so a start that was cut off half-way can simply run again. */
+async function createIfMissing(k: Knex, name: string, build: (t: Knex.CreateTableBuilder) => void): Promise<void> {
+  if (!(await k.schema.hasTable(name))) await k.schema.createTable(name, build);
+}
+
 const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Knex) => Promise<void> }> = {
   '001_initial': {
     async up(k) {
-      await k.schema.createTable('users', (t) => {
+      await createIfMissing(k, 'users', (t) => {
         t.increments('id').primary();
         t.string('name', 120).notNullable();
         t.string('email', 190).notNullable().unique();
@@ -43,7 +48,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.string('preference', 20);
         t.bigInteger('created_at').notNullable();
       });
-      await k.schema.createTable('packs', (t) => {
+      await createIfMissing(k, 'packs', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('title', 200).notNullable();
@@ -58,7 +63,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.bigInteger('last_opened_at');
         t.index(['user_id']);
       });
-      await k.schema.createTable('cards', (t) => {
+      await createIfMissing(k, 'cards', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('pack_id').unsigned().notNullable().references('id').inTable('packs').onDelete('CASCADE');
@@ -77,7 +82,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.index(['user_id', 'due_at']);
         t.index(['pack_id']);
       });
-      await k.schema.createTable('reviews', (t) => {
+      await createIfMissing(k, 'reviews', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('card_id').unsigned().notNullable().references('id').inTable('cards').onDelete('CASCADE');
@@ -87,7 +92,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.string('day', 10).notNullable();
         t.index(['user_id', 'day']);
       });
-      await k.schema.createTable('quiz_attempts', (t) => {
+      await createIfMissing(k, 'quiz_attempts', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('pack_id').unsigned().references('id').inTable('packs').onDelete('CASCADE');
@@ -98,7 +103,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.bigInteger('created_at').notNullable();
         t.index(['user_id', 'pack_id']);
       });
-      await k.schema.createTable('chunk_progress', (t) => {
+      await createIfMissing(k, 'chunk_progress', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('pack_id').unsigned().notNullable().references('id').inTable('packs').onDelete('CASCADE');
@@ -108,7 +113,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.bigInteger('updated_at').notNullable();
         t.unique(['user_id', 'pack_id', 'chunk_index']);
       });
-      await k.schema.createTable('notes', (t) => {
+      await createIfMissing(k, 'notes', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('pack_id').unsigned().notNullable().references('id').inTable('packs').onDelete('CASCADE');
@@ -118,7 +123,7 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
         t.bigInteger('created_at').notNullable();
         t.index(['user_id', 'pack_id', 'kind']);
       });
-      await k.schema.createTable('activity', (t) => {
+      await createIfMissing(k, 'activity', (t) => {
         t.increments('id').primary();
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('pack_id').unsigned().references('id').inTable('packs').onDelete('SET NULL');
@@ -138,13 +143,23 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
 };
 
 export async function migrate(): Promise<void> {
-  await db.migrate.latest({
+  const opts = {
     migrationSource: {
       getMigrations: async () => Object.keys(migrations).sort(),
       getMigrationName: (name: string) => name,
       getMigration: async (name: string) => migrations[name],
     },
-  });
+  };
+  try {
+    await db.migrate.latest(opts);
+  } catch (err: any) {
+    // A start that was stopped mid-setup (e.g. by a host restart) leaves the lock set.
+    // Only one copy of the app runs, so it's safe to clear it and finish the setup.
+    if (!/already locked/i.test(String(err?.message))) throw err;
+    console.warn('Clearing a stale database setup lock left by an interrupted start…');
+    await db.migrate.forceFreeMigrationsLock(opts);
+    await db.migrate.latest(opts);
+  }
 }
 
 export const now = () => Date.now();

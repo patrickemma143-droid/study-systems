@@ -68,11 +68,20 @@ const mysql = {
 };
 const dbClient = (env.DB_CLIENT || (url || env.MYSQL_USER || env.DB_USER ? 'mysql' : 'sqlite')).toLowerCase() as 'sqlite' | 'mysql';
 
+/** Website port. Hostinger expects 3000 when it doesn't pass PORT; 3306 is MySQL's port, a common mix-up. */
+function webPort(): number {
+  const p = Number(process.env.PORT) || 3000;
+  if (p === 3306) {
+    console.warn('⚠  PORT=3306 is the database port. Using 3000 for the website — put the database port in DB_PORT instead.');
+    return 3000;
+  }
+  return p;
+}
+
 export const config = {
   root,
   dataDir,
-  // Hostinger expects Node apps on port 3000 when it doesn't pass PORT.
-  port: Number(process.env.PORT) || 3000,
+  port: webPort(),
   isProd: process.env.NODE_ENV === 'production',
   jwtSecret: loadSecret(),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
