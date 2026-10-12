@@ -47,7 +47,9 @@ export function FocusTimer() {
   const [, tick] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => save('cs-timer', s), [s]);
+  useEffect(() => {
+    save('cs-timer', s);
+  }, [s]);
 
   const left = s.endsAt ? Math.max(0, Math.round((s.endsAt - Date.now()) / 1000)) : s.remaining;
 

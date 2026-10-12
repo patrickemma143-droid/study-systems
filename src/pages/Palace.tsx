@@ -39,8 +39,12 @@ export default function Palace() {
   const [step, setStep] = useState(0);
   const [revealed, setRevealed] = useState(false);
 
-  useEffect(() => save(`cs-palace-route-${id}`, route), [id, route]);
-  useEffect(() => save(`cs-palace-custom-${id}`, custom), [id, custom]);
+  useEffect(() => {
+    save(`cs-palace-route-${id}`, route);
+  }, [id, route]);
+  useEffect(() => {
+    save(`cs-palace-custom-${id}`, custom);
+  }, [id, custom]);
 
   useEffect(() => {
     api<{ notes: Note<{ key: string; image: string }>[] }>(`/study/notes?packId=${id}&kind=palace`).then((r) => {

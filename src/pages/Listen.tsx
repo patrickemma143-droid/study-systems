@@ -32,8 +32,12 @@ export default function Listen() {
     window.speechSynthesis.addEventListener('voiceschanged', load);
     return () => window.speechSynthesis.removeEventListener('voiceschanged', load);
   }, []);
-  useEffect(() => save('cs-tts-rate', rate), [rate]);
-  useEffect(() => save('cs-tts-voice', voice), [voice]);
+  useEffect(() => {
+    save('cs-tts-rate', rate);
+  }, [rate]);
+  useEffect(() => {
+    save('cs-tts-voice', voice);
+  }, [voice]);
   useEffect(() => () => stopAll(), []);
 
   function stopAll() {

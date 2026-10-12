@@ -15,7 +15,9 @@ function MnemonicCard({ m, packId, saved, onSave }: { m: Mnemonic; packId: numbe
   const letters = m.acronym.split('');
   const ordered = m.order.map((i) => m.items[i]);
 
-  useEffect(() => setMine(saved || ''), [saved]);
+  useEffect(() => {
+    setMine(saved || '');
+  }, [saved]);
 
   return (
     <div className="sheet stack">

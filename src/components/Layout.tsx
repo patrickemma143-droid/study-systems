@@ -19,7 +19,9 @@ export function Layout() {
       .catch(() => {});
   }, [loc.pathname]);
 
-  useEffect(() => window.scrollTo(0, 0), [loc.pathname]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [loc.pathname]);
 
   const initials = (user?.name || '?')
     .split(/\s+/)

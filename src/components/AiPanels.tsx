@@ -183,7 +183,9 @@ export function TutorChat({ packId, chunk, title }: { packId: number; chunk: num
     setMessages([]);
     setError(null);
   }, [packId, chunk]);
-  useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [messages, busy]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'nearest' });
+  }, [messages, busy]);
 
   if (!status?.enabled) return null;
 
