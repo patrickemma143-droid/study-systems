@@ -67,7 +67,19 @@ if (fs.existsSync(path.join(config.distDir, 'index.html'))) {
       },
     }),
   );
-  app.get('/{*splat}', (_req, res) => res.sendFile(path.join(config.distDir, 'index.html')));
+  // A missing file (e.g. a script from an older deploy) must be a real 404 — sending the
+  // web page instead makes the browser try to run HTML as code, which shows a blank screen.
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && /\.[a-z0-9]{1,8}$/i.test(req.path)) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(404).type('text/plain').send('Not found');
+    }
+    next();
+  });
+  app.get('/{*splat}', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache'); // always check for a newer version of the app shell
+    res.sendFile(path.join(config.distDir, 'index.html'));
+  });
 }
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

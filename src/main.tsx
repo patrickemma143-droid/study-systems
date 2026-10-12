@@ -1,4 +1,4 @@
-import { StrictMode, Suspense, lazy } from 'react';
+import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import '@fontsource/lexend/latin-400.css';
@@ -10,26 +10,34 @@ import './styles/global.css';
 import { AuthProvider, useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Loading, ToastProvider } from './components/ui';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { lazyPage, reloadForNewVersion } from './lib/lazyPage';
 import Landing from './pages/Landing';
 import AuthPage from './pages/AuthPage';
 import Dashboard from './pages/Dashboard';
 
+// If a newer version was deployed while this page was open, its files have new names:
+// reload once instead of failing.
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadForNewVersion()) e.preventDefault();
+});
+
 // Study pages load on demand so the first visit stays light on mobile data.
-const NewPack = lazy(() => import('./pages/NewPack'));
-const PackHome = lazy(() => import('./pages/PackHome'));
-const Lesson = lazy(() => import('./pages/Lesson'));
-const Flashcards = lazy(() => import('./pages/Flashcards'));
-const QuizPage = lazy(() => import('./pages/QuizPage'));
-const Cram = lazy(() => import('./pages/Cram'));
-const Feynman = lazy(() => import('./pages/Feynman'));
-const Blurt = lazy(() => import('./pages/Blurt'));
-const Palace = lazy(() => import('./pages/Palace'));
-const Mnemonics = lazy(() => import('./pages/Mnemonics'));
-const MindMap = lazy(() => import('./pages/MindMap'));
-const Cornell = lazy(() => import('./pages/Cornell'));
-const Listen = lazy(() => import('./pages/Listen'));
-const CheatSheet = lazy(() => import('./pages/CheatSheet'));
-const Profile = lazy(() => import('./pages/Profile'));
+const NewPack = lazyPage(() => import('./pages/NewPack'));
+const PackHome = lazyPage(() => import('./pages/PackHome'));
+const Lesson = lazyPage(() => import('./pages/Lesson'));
+const Flashcards = lazyPage(() => import('./pages/Flashcards'));
+const QuizPage = lazyPage(() => import('./pages/QuizPage'));
+const Cram = lazyPage(() => import('./pages/Cram'));
+const Feynman = lazyPage(() => import('./pages/Feynman'));
+const Blurt = lazyPage(() => import('./pages/Blurt'));
+const Palace = lazyPage(() => import('./pages/Palace'));
+const Mnemonics = lazyPage(() => import('./pages/Mnemonics'));
+const MindMap = lazyPage(() => import('./pages/MindMap'));
+const Cornell = lazyPage(() => import('./pages/Cornell'));
+const Listen = lazyPage(() => import('./pages/Listen'));
+const CheatSheet = lazyPage(() => import('./pages/CheatSheet'));
+const Profile = lazyPage(() => import('./pages/Profile'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -83,7 +91,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

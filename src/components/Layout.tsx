@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Home, Layers, Plus, UserRound } from 'lucide-react';
 import { api, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { today } from '../lib/util';
 import { FocusTimer } from './FocusTimer';
-import { Logo } from './ui';
+import { ErrorBoundary } from './ErrorBoundary';
+import { Loading, Logo } from './ui';
 
 export function Layout() {
   const { user } = useAuth();
@@ -54,7 +55,11 @@ export function Layout() {
         </div>
       </header>
       <main className="main" id="main">
-        <Outlet />
+        <ErrorBoundary key={loc.pathname}>
+          <Suspense fallback={<Loading />}>
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
       </main>
       <nav className="tabbar" aria-label="Main">
         <NavLink to="/home">

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ClipboardPaste, FileUp, Search, UploadCloud, X } from 'lucide-react';
 import { api } from '../api';
 import { ACCEPT, extractFile, sourceTypeOf } from '../lib/extract';
+import { isStaleBuildError, reloadForNewVersion } from '../lib/lazyPage';
 
 type Tab = 'file' | 'paste' | 'topic';
 
@@ -66,6 +67,10 @@ export default function NewPack() {
       }
       nav(`/pack/${id}?new=1`);
     } catch (e: any) {
+      if (isStaleBuildError(e) && reloadForNewVersion()) {
+        setBusy('Charis Study was just updated. Reloading…');
+        return;
+      }
       setError(e.message || 'Something went wrong. Try again.');
       setBusy(null);
     }
