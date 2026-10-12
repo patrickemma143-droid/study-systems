@@ -4,7 +4,9 @@ import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
 import { recallNow, schedule, type Rating } from '../../shared/srs';
 import { onActivity, onBlurt, onExplain, onQuiz, onReview, removeAward } from '../points';
+import { readinessFor } from '../readiness';
 import type { QuizQuestion, StudyPack } from '../../shared/engine/types';
+import { buildLevelQuiz } from '../../shared/engine/levels';
 
 export const studyRouter = Router();
 studyRouter.use(requireAuth);
@@ -18,6 +20,7 @@ function cardOut(c: any) {
     packTitle: c.pack_title,
     examDate: c.exam_date,
     chunk: c.chunk_index,
+    ...(c.chunk_title !== undefined ? { chunkTitle: c.chunk_title } : {}),
     type: c.type,
     front: c.front,
     back: c.back,
@@ -71,6 +74,13 @@ studyRouter.get('/cards', async (req, res) => {
     const fresh = pool.filter((c: any) => !(Number(c.reps) > 0 || c.last_reviewed_at));
     rows = [...reviewed, ...fresh].slice(0, q.limit);
   } else rows = await query.limit(q.limit);
+  // Which lesson each card comes from, so the card can show its heading
+  const titles = new Map<number, string[]>();
+  for (const pid of [...new Set(rows.map((r: any) => Number(r.pack_id)))]) {
+    const pk = await db('packs').where({ id: pid }).select('data').first();
+    titles.set(pid, (parseJSON<StudyPack | null>(pk?.data, null)?.chunks || []).map((c) => c.title));
+  }
+  for (const r of rows as any[]) r.chunk_title = titles.get(Number(r.pack_id))?.[Number(r.chunk_index)] || null;
   const dueCount = await db('cards').where({ user_id: uid, suspended: false }).andWhere('due_at', '<=', t).modify((b) => q.packId && b.where('pack_id', q.packId)).count({ n: '*' }).first();
   res.json({ cards: rows.map(cardOut), dueTotal: Number((dueCount as any)?.n || 0) });
 });
@@ -149,6 +159,7 @@ studyRouter.post('/quiz', async (req, res) => {
     .object({
       packId: z.number().int().nullable(),
       mode: z.string().max(20),
+      level: z.enum(['easy', 'medium', 'hard']).default('medium'),
       score: z.number().int().min(0),
       total: z.number().int().min(1),
       wrong: z.array(z.object({ packId: z.number().int(), chunk: z.number().int() })).max(200).default([]),
@@ -164,7 +175,7 @@ studyRouter.post('/quiz', async (req, res) => {
   for (const w of body.wrong.slice(0, 30)) {
     await db('cards').where({ user_id: uid, pack_id: w.packId, chunk_index: w.chunk }).andWhere('due_at', '>', now()).update({ due_at: now() });
   }
-  const points = await onQuiz(uid, body.packId, body.score, body.total).catch(() => 0);
+  const points = await onQuiz(uid, body.packId, body.score, body.total, body.level).catch(() => 0);
   res.status(201).json({ ok: true, points });
 });
 
@@ -172,11 +183,12 @@ studyRouter.post('/quiz', async (req, res) => {
 studyRouter.get('/mixed', async (req, res) => {
   const uid = userId(res);
   const limit = Math.min(30, Number(req.query.limit) || 12);
+  const level = z.enum(['easy', 'medium', 'hard']).catch('medium').parse(req.query.level);
   const packs = await db('packs').where({ user_id: uid }).select('id', 'title', 'data').orderBy('last_opened_at', 'desc').limit(12);
   const pool: { packId: number; packTitle: string; q: QuizQuestion }[] = [];
   for (const p of packs as any[]) {
     const data = parseJSON<StudyPack | null>(p.data, null);
-    for (const q of data?.quiz || []) pool.push({ packId: p.id, packTitle: p.title, q });
+    if (data) for (const q of buildLevelQuiz(data, level)) pool.push({ packId: p.id, packTitle: p.title, q });
   }
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -312,6 +324,43 @@ studyRouter.get('/stats', async (req, res) => {
     dueCards: Number((due as any)?.n || 0),
     totalCards: Number((totals as any)?.total || 0),
     strongCards: Number((totals as any)?.strong || 0),
-    exams: exams.map((e: any) => ({ packId: e.id, title: e.title, examDate: e.exam_date })),
+    exams: await Promise.all(
+      exams.map(async (e: any) => {
+        const r = await readinessFor(uid, e.id).catch(() => null);
+        return { packId: e.id, title: e.title, examDate: e.exam_date, readiness: r ? { score: r.score, label: r.label, message: r.message } : null };
+      }),
+    ),
   });
+});
+
+// ─── After the paper: "How did it go?" ───────────────────────
+studyRouter.get('/exam-reviews/pending', async (req, res) => {
+  const uid = userId(res);
+  const today = day.parse(req.query.day);
+  const since = shiftDay(today, -21);
+  const packs = await db('packs').where({ user_id: uid }).whereNotNull('exam_date').andWhere('exam_date', '<', today).andWhere('exam_date', '>=', since).select('id', 'title', 'exam_date', 'data');
+  const done = new Set((await db('exam_reviews').where({ user_id: uid }).select('pack_id')).map((r: any) => Number(r.pack_id)));
+  const pending = (packs as any[])
+    .filter((p) => !done.has(Number(p.id)))
+    .map((p) => ({ packId: p.id, title: p.title, examDate: p.exam_date, lessons: (parseJSON<StudyPack | null>(p.data, null)?.chunks || []).map((c) => ({ index: c.index, title: c.title })) }));
+  res.json({ pending });
+});
+
+studyRouter.post('/exam-reviews', async (req, res) => {
+  const uid = userId(res);
+  const body = z
+    .object({
+      packId: z.number().int(),
+      howItWent: z.number().int().min(1).max(5),
+      appRating: z.number().int().min(1).max(5).nullable().optional(),
+      topics: z.array(z.number().int()).max(100).default([]),
+      comment: z.string().trim().max(2000).optional(),
+    })
+    .parse(req.body);
+  const own = await db('packs').where({ id: body.packId, user_id: uid }).first();
+  if (!own) throw new HttpError(404, 'Study pack not found.');
+  const r = await readinessFor(uid, body.packId).catch(() => null);
+  await db('exam_reviews').where({ user_id: uid, pack_id: body.packId }).delete();
+  await db('exam_reviews').insert({ user_id: uid, pack_id: body.packId, how_it_went: body.howItWent, app_rating: body.appRating ?? null, readiness: r?.score ?? null, topics: JSON.stringify(body.topics), comment: body.comment || null, created_at: now() });
+  res.status(201).json({ ok: true });
 });

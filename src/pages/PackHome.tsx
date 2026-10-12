@@ -4,6 +4,7 @@ import { BookOpenCheck, CalendarDays, Check, ExternalLink, Pencil, PartyPopper, 
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { AiPackExplainer } from '../components/AiPanels';
+import { ReadinessCard } from '../components/Readiness';
 import { Bar, Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { METHODS, methodById, recommend } from '../methods';
 import { invalidatePack, usePack } from '../lib/usePack';
@@ -163,6 +164,8 @@ export default function PackHome() {
           </div>
         </div>
       </div>
+
+      {data.readiness && (pack.examDate || data.readiness.score > 0) && <ReadinessCard r={data.readiness} packId={id} />}
 
       <section className="section">
         <div className="section-head">

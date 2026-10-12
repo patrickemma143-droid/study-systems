@@ -124,6 +124,19 @@ Each kind has a daily cap. Weeks run Monday to Sunday (Kampala time). `/ranks` s
 
 Flashcards also gained **Previous card**: step back through the cards answered in this session (← / →) and change a rating within 30 minutes. In the Feynman technique, **Peek at the notes** now opens the notes beside your explanation instead of leaving it.
 
+## Exams: papers, past papers, readiness
+
+- **Quiz levels**: Easy (fewer, clearer choices), Medium (the standard quiz) and Hard ("twisted": NOT questions, swapped definitions, choose the one correct description, type the term with no options). Points per correct answer: 1, 2 and 4.
+- **Mock exam paper** (`/pack/:id/paper`): objective, short-answer and structured/essay sections with marks, instructions, time and a marking guide. Download as PDF (print → Save as PDF) or as a Word file.
+- **Past papers**: upload (PDF, Word, text) or paste a past paper. The app finds the questions, sections, marks, time, the "answer any THREE" rule, the command words examiners use and which of the student's topics came up, then sets mock papers in the same style.
+- **Exam readiness** on each pack and on Home: a score from lessons understood, what is remembered right now, quiz scores and explanations, the weakest lessons to fix next, and an encouraging message. Reminders in the last three days include it.
+- **After the paper**: the day after the exam date the student is asked how it went, which topics came up and whether the app helped. Results appear on the admin page.
+- Lessons show a clear **Start reading / End of lesson** marker with highlighted headings, and each flashcard shows which lesson it comes from.
+
+## Public profiles and search engines
+
+Students can make an opt-in **public profile** (`/u/<name>`) with their university, course, points, lessons mastered and weekly achievements ("#1 at Gulu University", "Top Explainer"). These pages, the public **top students** page (`/leaderboard`, public profiles only), `sitemap.xml` and `robots.txt` are server-rendered with search descriptions and schema.org data so Google can index them. Set `PUBLIC_URL` (e.g. `https://study.chariscreations.com`) once you use your own domain, then add the site and sitemap in Google Search Console.
+
 ## AI helpers (optional)
 
 Everything above works with no AI. Add one API key and these appear for logged-in students:
@@ -257,6 +270,9 @@ charis-study/
 │  ├─ routes/plan.ts       timetable, study settings, reminder devices, calendar export
 │  ├─ notify.ts            web push reminders (checks every minute)
 │  ├─ points.ts            study points, copy check, weekly leaderboard
+│  ├─ readiness.ts         exam readiness score and encouragement
+│  ├─ public.ts            public profiles, top students, sitemap, robots.txt
+│  ├─ routes/papers.ts     past paper upload and analysis
 │  ├─ routes/points.ts     my points, rankings, ranking visibility
 │  ├─ ai/                  AI providers, prompts, shared cache and daily allowances
 │  └─ services/wikipedia.ts

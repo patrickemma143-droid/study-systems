@@ -206,6 +206,9 @@ export default function Ranks() {
             </div>
           ))}
         </div>
+        <p className="hint">
+          Students who make their profile public also appear on the <a href="/leaderboard">public top students page</a>, which search engines can find.
+        </p>
         <p className="hint">Points come only from work the app can check, and each kind has a daily limit, so steady daily study beats one long night. You can hide yourself from the rankings in your profile.</p>
       </div>
     </div>

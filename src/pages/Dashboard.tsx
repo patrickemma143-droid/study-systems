@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { Loading, Ring, useToast } from '../components/ui';
 import { daysUntil, examLabel, greeting, plural, today } from '../lib/util';
 import { SessionRow, type PlanSession } from './Plan';
+import { ExamReview, pendingReviews, readyColor } from '../components/Readiness';
 
 const SOURCE_ICON: Record<string, typeof FileText> = { pdf: FileText, docx: FileText, pptx: Presentation, topic: Globe, paste: StickyNote, txt: StickyNote };
 
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [making, setMaking] = useState(false);
   const [todayPlan, setTodayPlan] = useState<PlanSession[] | null>(null);
+  const [reviews, setReviews] = useState<Awaited<ReturnType<typeof pendingReviews>>>([]);
 
   useEffect(() => {
     api<{ packs: PackSummary[] }>('/packs').then((r) => setPacks(r.packs));
@@ -24,6 +26,9 @@ export default function Dashboard() {
     api<{ sessions: PlanSession[] }>(`/plan?from=${today()}`)
       .then((r) => setTodayPlan(r.sessions.filter((s) => s.day === today())))
       .catch(() => setTodayPlan([]));
+    pendingReviews()
+      .then(setReviews)
+      .catch(() => {});
   }, []);
 
   async function trySample() {
@@ -114,6 +119,14 @@ export default function Dashboard() {
         </div>
       )}
 
+      {reviews.length > 0 && (
+        <div className="stack" style={{ marginBottom: 18 }}>
+          {reviews.slice(0, 2).map((r) => (
+            <ExamReview key={r.packId} p={r} onDone={() => setReviews((list) => list.filter((x) => x.packId !== r.packId))} />
+          ))}
+        </div>
+      )}
+
       {packs.length > 0 && todayPlan && (
         <div className="section">
           <div className="section-head">
@@ -151,6 +164,11 @@ export default function Dashboard() {
                   <div style={{ minWidth: 0 }}>
                     <div className="list-title">{e.title}</div>
                     <div className="small muted">{d <= 2 ? 'Open the cram plan' : new Date(`${e.examDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}</div>
+                    {e.readiness && (
+                      <div className="small" style={{ color: readyColor(e.readiness.score), fontWeight: 600 }}>
+                        {e.readiness.score}% ready · {e.readiness.label}
+                      </div>
+                    )}
                   </div>
                 </Link>
               );

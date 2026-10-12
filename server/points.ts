@@ -5,6 +5,7 @@ import { db, now, parseJSON } from './db';
 import { aiDay } from './ai/service';
 import { checkRecall } from '../shared/engine/recall';
 import { markTyped } from '../shared/engine/typed';
+import { LEVEL_POINTS } from '../shared/engine/levels';
 import { words } from '../shared/engine/text';
 import type { StudyPack } from '../shared/engine/types';
 
@@ -133,14 +134,16 @@ export async function onReview(uid: number, reviewId: number, card: any, rating:
   return total;
 }
 
-export async function onQuiz(uid: number, packId: number | null, score: number, total: number): Promise<number> {
+export async function onQuiz(uid: number, packId: number | null, score: number, total: number, level: 'easy' | 'medium' | 'hard' = 'medium'): Promise<number> {
   if (total < 3) return 0;
   const day = aiDay();
   const pct = Math.round((score / total) * 100);
   const attempt = await db('points_events').where({ user_id: uid, day }).andWhere('dedupe', 'like', `quiz-${uid}-${packId ?? 'mixed'}-${day}-%`).count({ n: '*' }).first();
   const n = Number((attempt as any)?.n || 0);
   if (n >= 2) return 0; // only your first two quizzes per pack per day count
-  return award(uid, 'fast', Math.min(30, score * 2), `Quiz: ${score}/${total} (${pct}%)`, `quiz-${uid}-${packId ?? 'mixed'}-${day}-${n}`, { score: pct });
+  const per = LEVEL_POINTS[level];
+  const name = level === 'hard' ? 'Hard quiz' : level === 'easy' ? 'Easy quiz' : 'Quiz';
+  return award(uid, 'fast', Math.min(15 * per, score * per), `${name}: ${score}/${total} (${pct}%)`, `quiz-${uid}-${packId ?? 'mixed'}-${day}-${n}`, { score: pct });
 }
 
 export interface ExplainResult {

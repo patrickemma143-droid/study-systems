@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy } from 'lucide-react';
+import { Copy, Globe, Share2, Trophy } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useToast } from './ui';
 
 interface MyPoints {
   week: string;
@@ -14,6 +15,9 @@ interface MyPoints {
   players: number;
   playersUniversity: number;
   onLeaderboard: boolean;
+  publicProfile: boolean;
+  publicUrl: string | null;
+  bio: string;
   recent: { category: string; points: number; reason: string; at: number }[];
   history: { week: string; points: number }[];
 }
@@ -24,9 +28,16 @@ const LABEL: Record<string, string> = { memory: 'Memory', fast: 'Fast learner', 
 export function PointsCard() {
   const { user } = useAuth();
   const [p, setP] = useState<MyPoints | null>(null);
+  const [bio, setBio] = useState('');
+  const toast = useToast();
 
   useEffect(() => {
-    api<MyPoints>('/points/me').then(setP).catch(() => {});
+    api<MyPoints>('/points/me')
+      .then((r) => {
+        setP(r);
+        setBio(r.bio || '');
+      })
+      .catch(() => {});
   }, []);
 
   if (!p) return null;
@@ -37,6 +48,17 @@ export function PointsCard() {
     await api('/points/visibility', { method: 'PUT', body: { onLeaderboard: next } });
     setP({ ...p!, onLeaderboard: next, rank: next ? p!.rank : null, rankUniversity: next ? p!.rankUniversity : null });
   }
+
+  async function setPublic(on: boolean) {
+    try {
+      const r = await api<{ publicProfile: boolean; publicUrl: string | null }>('/points/public', { method: 'PUT', body: { public: on, bio } });
+      setP({ ...p!, ...r });
+      toast(on ? 'Your public profile is live.' : 'Your profile is private again.');
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
+  const shareText = p.publicUrl ? `My study record on Charis Study: ${p.publicUrl}` : '';
 
   return (
     <div className="sheet stack">
@@ -91,6 +113,36 @@ export function PointsCard() {
         <input type="checkbox" checked={p.onLeaderboard} onChange={toggle} />
         Show my name, university and course in the weekly rankings
       </label>
+      <div className="sheet tight" style={{ background: 'var(--paper-2)' }}>
+        <div className="row between">
+          <strong className="row" style={{ gap: 6 }}>
+            <Globe size={17} color="var(--biro)" /> Public profile
+          </strong>
+          <button className={`btn small ${p.publicProfile ? '' : 'primary'}`} onClick={() => setPublic(!p.publicProfile)}>
+            {p.publicProfile ? 'Make private' : 'Make it public'}
+          </button>
+        </div>
+        <p className="small muted" style={{ margin: '6px 0' }}>
+          A page with your name, university, course, points and achievements that anyone — including Google and future employers — can find. Your notes and answers are never shown.
+        </p>
+        <input className="input" placeholder="One line about you (optional), e.g. Final-year nursing student, Gulu" value={bio} maxLength={200} onChange={(e) => setBio(e.target.value)} onBlur={() => p.publicProfile && setPublic(true)} aria-label="Short bio" />
+        {p.publicUrl && (
+          <div className="row" style={{ gap: 6, marginTop: 8 }}>
+            <a href={p.publicUrl} target="_blank" rel="noreferrer" className="small" style={{ overflowWrap: 'anywhere' }}>
+              {p.publicUrl}
+            </a>
+            <button className="btn small ghost" onClick={() => navigator.clipboard?.writeText(p.publicUrl!).then(() => toast('Link copied'))}>
+              <Copy size={14} /> Copy
+            </button>
+            <a className="btn small" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noreferrer">
+              <Share2 size={14} /> WhatsApp
+            </a>
+            <a className="btn small" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(p.publicUrl)}`} target="_blank" rel="noreferrer">
+              LinkedIn
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

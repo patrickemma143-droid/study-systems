@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { regenerate } from './plan';
+import { readinessFor } from '../readiness';
 import { z } from 'zod';
 import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
@@ -200,6 +201,7 @@ packsRouter.get('/:id', async (req, res) => {
     if (iv >= 1) b.known++;
   }
 
+  const data = parseJSON<StudyPack | null>(row.data, null);
   res.json({
     pack: {
       id: row.id,
@@ -208,8 +210,9 @@ packsRouter.get('/:id', async (req, res) => {
       sourceName: row.source_name,
       examDate: row.exam_date,
       createdAt: Number(row.created_at),
-      data: parseJSON<StudyPack | null>(row.data, null),
+      data,
     },
+    readiness: await readinessFor(uid, id, data, row.exam_date).catch(() => null),
     progress: Object.fromEntries(progress.map((p: any) => [p.chunk_index, { status: p.status, bestRecall: p.best_recall }])),
     cards: { ...counts, byChunk },
     quiz: quiz.map((q: any) => ({ score: q.score, total: q.total, at: Number(q.created_at) })),

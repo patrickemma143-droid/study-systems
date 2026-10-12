@@ -25,6 +25,12 @@ interface Overview {
   cache: { entries: number; hits: number };
   today: Summary;
   last30: Summary;
+  reviews?: {
+    count: number;
+    appRating: number | null;
+    howItWent: number | null;
+    recent: { name: string; university: string | null; pack: string; howItWent: number; appRating: number | null; readiness: number | null; comment: string | null; at: number }[];
+  };
 }
 interface AdminUser {
   id: number;
@@ -237,6 +243,56 @@ export default function Admin() {
           </p>
         )}
       </div>
+
+      {data.reviews && (
+        <div className="sheet">
+          <div className="row between" style={{ marginBottom: 8 }}>
+            <h2 style={{ fontSize: '1.1rem', margin: 0 }}>After-exam reviews</h2>
+            <span className="small muted">
+              {n(data.reviews.count)} reviews
+              {data.reviews.appRating != null ? ` · app rated ${data.reviews.appRating}/5` : ''}
+              {data.reviews.howItWent != null ? ` · papers went ${data.reviews.howItWent}/5 on average` : ''}
+            </span>
+          </div>
+          {data.reviews.recent.length === 0 ? (
+            <p className="small muted" style={{ margin: 0 }}>
+              No reviews yet. Students are asked the day after each exam date.
+            </p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Exam</th>
+                    <th className="num">Went (1–5)</th>
+                    <th className="num">Ready before</th>
+                    <th className="num">App (1–5)</th>
+                    <th>Comment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.reviews.recent.map((r, i) => (
+                    <tr key={i}>
+                      <td>
+                        <div>{r.name}</div>
+                        <div className="small muted">{r.university || '—'}</div>
+                      </td>
+                      <td className="small">{r.pack}</td>
+                      <td className="num">{r.howItWent}</td>
+                      <td className="num">{r.readiness != null ? `${r.readiness}%` : '—'}</td>
+                      <td className="num">{r.appRating ?? '—'}</td>
+                      <td className="small" style={{ whiteSpace: 'normal', minWidth: 200 }}>
+                        {r.comment || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <UsageTable title="AI use today" s={data.today} />
       <UsageTable title="AI use, last 30 days" s={data.last30} />

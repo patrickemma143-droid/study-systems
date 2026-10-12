@@ -1,7 +1,7 @@
-import { BookOpen, Castle, Columns2, FileText, Headphones, Layers, ListChecks, MessageSquareText, Network, PenLine, Sparkles, Zap, type LucideIcon } from 'lucide-react';
+import { BookOpen, Castle, ClipboardList, Columns2, FileText, Headphones, Layers, ListChecks, MessageSquareText, Network, PenLine, Sparkles, Zap, type LucideIcon } from 'lucide-react';
 import type { User } from './api';
 
-export type MethodId = 'cram' | 'lessons' | 'cards' | 'quiz' | 'feynman' | 'blurt' | 'palace' | 'mnemonics' | 'mindmap' | 'cornell' | 'listen' | 'sheet';
+export type MethodId = 'cram' | 'lessons' | 'cards' | 'quiz' | 'feynman' | 'blurt' | 'palace' | 'mnemonics' | 'mindmap' | 'cornell' | 'listen' | 'sheet' | 'paper';
 
 export interface Method {
   id: MethodId;
@@ -18,7 +18,8 @@ export const METHODS: Method[] = [
   { id: 'cram', name: 'Cram plan', icon: Zap, tint: 'var(--hl-orange)', blurb: 'A timed plan for when the exam is close: cheat sheet, quick-fire cards, then a short quiz.', bestFor: 'Exam in the next day or two', time: '15–60 min', path: 'cram' },
   { id: 'lessons', name: 'Bite-size lessons', icon: BookOpen, tint: 'var(--hl-yellow)', blurb: 'Read one small chunk at a time, with the main points pulled out and jargon explained.', bestFor: 'Learning it for the first time', time: '3–5 min each', path: 'learn/0' },
   { id: 'cards', name: 'Flashcards', icon: Layers, tint: 'var(--hl-blue)', blurb: 'Spaced repetition: each card comes back just before you would forget it.', bestFor: 'Remembering it for weeks', time: '10 min a day', path: 'cards' },
-  { id: 'quiz', name: 'Practice quiz', icon: ListChecks, tint: 'var(--hl-green)', blurb: 'Multiple choice, true or false, fill the gap and put-in-order questions.', bestFor: 'Exam practice', time: '5–15 min', path: 'quiz' },
+  { id: 'quiz', name: 'Practice quiz', icon: ListChecks, tint: 'var(--hl-green)', blurb: 'Easy, medium or hard (twisted) questions. Harder levels earn more points.', bestFor: 'Exam practice', time: '5–15 min', path: 'quiz' },
+  { id: 'paper', name: 'Exam paper', icon: ClipboardList, tint: 'var(--hl-orange)', blurb: 'A full mock paper with sections, marks and a marking guide, to download. Upload a past paper and we copy its style.', bestFor: 'Sitting a practice exam', time: '1–3 hours', path: 'paper' },
   { id: 'feynman', name: 'Feynman technique', icon: MessageSquareText, tint: 'var(--hl-purple)', blurb: 'Explain a lesson in your own simple words. We show which ideas you covered and missed.', bestFor: 'Really understanding it', time: '5–10 min', path: 'feynman' },
   { id: 'blurt', name: 'Blurting', icon: PenLine, tint: 'var(--hl-pink)', blurb: 'Write down everything you remember before a timer runs out, then compare with your notes.', bestFor: 'Checking what stuck', time: '2–10 min', path: 'blurt' },
   { id: 'palace', name: 'Memory palace', icon: Castle, tint: 'var(--hl-purple)', blurb: 'Place key ideas along a route you know well, like your walk to campus, and walk it in your mind.', bestFor: 'Lists, sequences and facts', time: '10–15 min', path: 'palace' },

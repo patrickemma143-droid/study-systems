@@ -360,6 +360,10 @@ export default function Flashcards() {
                 aria-label={flipped ? `Answer: ${card.back}` : `Question: ${card.front}. Press space to show the answer.`}
               >
                 <div className="face front">
+                  <span className="card-lesson" title="The lesson this card is from">
+                    Lesson {card.chunk + 1}
+                    {card.chunkTitle ? `: ${card.chunkTitle}` : ''}
+                  </span>
                   <div className="kind">
                     <span>{TYPE_LABEL[card.type] || 'Card'}</span>
                     {card.reps === 0 && card.interval === 0 && <span className="chip" style={{ padding: '0 8px' }}>New</span>}
@@ -368,6 +372,10 @@ export default function Flashcards() {
                   <div className="tap">{card.hint && !flipped ? `Hint: ${card.hint}` : 'Tap to see the answer'}</div>
                 </div>
                 <div className="face back">
+                  <span className="card-lesson">
+                    Lesson {card.chunk + 1}
+                    {card.chunkTitle ? `: ${card.chunkTitle}` : ''}
+                  </span>
                   <div className="kind">
                     <span>Answer</span>
                   </div>

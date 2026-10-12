@@ -154,12 +154,18 @@ export default function Lesson() {
         {showFull ? 'Hide the full notes' : 'Read the full notes'}
       </button>
       {showFull && (
-        <article className="page" style={{ marginBottom: 18 }}>
+        <article className="page" style={{ marginBottom: 18 }} aria-label={`Lesson ${index + 1}: ${chunk.title}`}>
           {chunk.importance >= 0.75 && (
-            <span className="margin-note" style={{ top: 26 }}>
+            <span className="margin-note" style={{ top: 70 }}>
               exam!
             </span>
           )}
+          <div className="read-marker start" role="note">
+            <span className="read-flag">Start reading</span>
+            <span className="read-title">
+              Lesson {index + 1}: {chunk.title}
+            </span>
+          </div>
           {groups.map((g, i) =>
             g.t === 'ul' ? (
               <ul key={i}>
@@ -170,13 +176,19 @@ export default function Lesson() {
                 ))}
               </ul>
             ) : g.t === 'h' ? (
-              <h3 key={i}>{g.x}</h3>
+              <h3 key={i} className="read-heading">
+                <mark>{g.x}</mark>
+              </h3>
             ) : (
               <p key={i}>
                 <Highlighted text={g.x} terms={glossary} colorful />
               </p>
             ),
           )}
+          <div className="read-marker end" role="note">
+            <span className="read-flag">End of lesson {index + 1}</span>
+            <span className="read-title">{index < total - 1 ? `Next: ${data.pack.data.chunks[index + 1].title}` : 'That’s the last lesson in this pack'}</span>
+          </div>
         </article>
       )}
 

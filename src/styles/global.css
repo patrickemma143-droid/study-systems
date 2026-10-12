@@ -1577,3 +1577,126 @@ kbd {
 .podium > .sheet {
   margin-top: 0;
 }
+
+/* ── reading markers ── */
+.read-marker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 var(--rule-gap);
+  padding: 6px 12px;
+  border-radius: var(--r-ctl);
+  line-height: 1.4;
+}
+.read-marker.start {
+  background: var(--good-soft);
+  border-left: 5px solid var(--good);
+}
+.read-marker.end {
+  margin: var(--rule-gap) 0 0;
+  background: var(--bad-soft);
+  border-left: 5px solid var(--bad);
+}
+.read-flag {
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.read-marker.start .read-flag {
+  color: var(--good);
+}
+.read-marker.end .read-flag {
+  color: var(--bad);
+}
+.read-title {
+  font-weight: 600;
+}
+.read-heading mark {
+  background: linear-gradient(transparent 45%, var(--hl-yellow) 45%);
+  color: var(--ink);
+  padding: 0 4px;
+}
+.card-lesson {
+  display: inline-block;
+  max-width: 100%;
+  margin-bottom: 4px;
+  padding: 2px 10px;
+  border-radius: var(--r-chip);
+  background: var(--hl-yellow);
+  color: var(--hl-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── quiz levels ── */
+.levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .levels {
+    grid-template-columns: 1fr;
+  }
+}
+.level-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: var(--r-ctl);
+  border: 2px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.level-btn.easy { --tone: var(--good); }
+.level-btn.medium { --tone: var(--biro); }
+.level-btn.hard { --tone: var(--bad); }
+.level-btn.on {
+  border-color: var(--tone);
+  background: var(--paper-2);
+}
+.level-pts {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--tone);
+}
+
+/* ── exam paper ── */
+.paper-doc {
+  margin-top: 24px;
+  background: #fff;
+  color: #111;
+  border-radius: var(--r-sheet);
+  box-shadow: var(--shadow-sheet);
+  padding: 36px 40px;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+.paper-doc h2,
+.paper-doc h3 {
+  color: #111;
+}
+@media (max-width: 560px) {
+  .paper-doc {
+    padding: 20px 16px;
+  }
+}
+@media print {
+  .paper-doc {
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border: 0 !important;
+    font-size: 11pt;
+  }
+}

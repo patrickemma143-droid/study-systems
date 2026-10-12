@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { RotateCcw, X } from 'lucide-react';
 import { shuffle } from '@shared/engine/text';
+import { buildLevelQuiz, LEVEL_POINTS, type Level } from '@shared/engine/levels';
 import { api, type MixedQuestion } from '../api';
 import { QuizRunner, type QuizResult, type RunnerQuestion } from '../components/QuizRunner';
 import { Crumbs, ErrorState, Loading, Ring, useToast } from '../components/ui';
@@ -22,22 +23,22 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
   const [result, setResult] = useState<QuizResult | null>(null);
   const [round, setRound] = useState(0);
   const [mixedErr, setMixedErr] = useState<string | null>(null);
+  const [level, setLevel] = useState<Level>('medium');
 
   useEffect(() => {
     if (!mixed) return;
-    api<{ questions: MixedQuestion[] }>('/study/mixed?limit=12')
+    api<{ questions: MixedQuestion[] }>(`/study/mixed?limit=12&level=${level}`)
       .then((r) => {
         if (!r.questions.length) setMixedErr('Add at least one study pack to get a mixed quiz.');
         setQuestions(r.questions.map((m) => ({ ...m.q, packId: m.packId, packTitle: m.packTitle })));
       })
       .catch((e) => setMixedErr(e.message));
-  }, [mixed, round]);
+  }, [mixed, round, level]);
 
   const pool = useMemo(() => {
     if (!data) return [];
-    const all = data.pack.data.quiz;
-    return selected.length ? all.filter((q) => selected.includes(q.chunk)) : all;
-  }, [data, selected]);
+    return buildLevelQuiz(data.pack.data, level, selected.length ? selected : undefined, `${round}`);
+  }, [data, selected, level, round]);
 
   function start(from = pool) {
     const picked = shuffle(from).slice(0, count || from.length);
@@ -49,7 +50,7 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
     setResult(r);
     const wrong = r.answers.filter((a) => !a.correct).map((a) => ({ packId: a.q.packId ?? packId!, chunk: a.q.chunk }));
     const uniq = [...new Map(wrong.map((w) => [`${w.packId}:${w.chunk}`, w])).values()];
-    const saved = await api<{ points?: number }>('/study/quiz', { body: { packId, mode: mixed ? 'mixed' : 'quiz', score: r.score, total: r.total, wrong: uniq, details: r.answers.map((a) => ({ id: a.q.id, ok: a.correct })) } }).catch(() => null);
+    const saved = await api<{ points?: number }>('/study/quiz', { body: { packId, mode: mixed ? 'mixed' : 'quiz', level, score: r.score, total: r.total, wrong: uniq, details: r.answers.map((a) => ({ id: a.q.id, ok: a.correct })) } }).catch(() => null);
     if (saved?.points) toast(`+${saved.points} fast learner points`);
     if (packId) invalidatePack(packId);
   }
@@ -67,6 +68,31 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
       <Crumbs items={crumbs} />
       <h1>{title}</h1>
       {mixed && !result && <p className="muted">Questions from all your packs, mixed together. Switching topics feels harder, but it builds stronger memory than practising one topic at a time.</p>}
+      {!result && (!questions || mixed) && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="label" style={{ marginBottom: 8 }}>
+            Difficulty
+          </div>
+          <div className="levels" role="radiogroup" aria-label="Difficulty">
+            {(['easy', 'medium', 'hard'] as Level[]).map((l) => (
+              <button
+                key={l}
+                role="radio"
+                aria-checked={level === l}
+                className={`level-btn ${l} ${level === l ? 'on' : ''}`}
+                onClick={() => {
+                  setLevel(l);
+                  if (mixed) setQuestions(null);
+                }}
+              >
+                <strong>{l === 'easy' ? 'Easy' : l === 'medium' ? 'Medium' : 'Hard'}</strong>
+                <span className="small">{l === 'easy' ? 'Fewer choices, clear answers' : l === 'medium' ? 'The standard quiz' : 'Twisted: “NOT” questions, swapped definitions, type the answer'}</span>
+                <span className="level-pts">{LEVEL_POINTS[l] * 1}× points</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {result ? (
         <Results

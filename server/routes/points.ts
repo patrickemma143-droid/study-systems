@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { requireAuth, userId } from '../auth';
 import { db } from '../db';
 import { lastWeek, leaderboard, thisWeek } from '../points';
+import { baseUrl, slugify } from '../public';
+import crypto from 'node:crypto';
 
 export const pointsRouter = Router();
 pointsRouter.use(requireAuth);
@@ -11,7 +13,7 @@ pointsRouter.use(requireAuth);
 pointsRouter.get('/me', async (_req, res) => {
   const uid = userId(res);
   const week = thisWeek();
-  const u = await db('users').where({ id: uid }).select('university', 'course', 'leaderboard').first();
+  const u = await db('users').where({ id: uid }).select('university', 'course', 'leaderboard', 'public_profile', 'public_slug', 'bio').first();
   const board = await leaderboard(week);
   const uni = u?.university ? await leaderboard(week, { university: u.university }) : [];
   const mine = board.find((r) => r.userId === uid);
@@ -31,6 +33,9 @@ pointsRouter.get('/me', async (_req, res) => {
     players: board.length,
     playersUniversity: uni.length,
     onLeaderboard: !!u?.leaderboard,
+    publicProfile: !!u?.public_profile,
+    publicUrl: u?.public_profile && u.public_slug ? `${baseUrl(_req)}/u/${u.public_slug}` : null,
+    bio: u?.bio || '',
     recent: recent.map((r: any) => ({ category: r.category, points: r.points, reason: r.reason, at: Number(r.created_at) })),
     history: weeks.map((w: any) => ({ week: w.week, points: Number(w.p) })),
   });
@@ -69,4 +74,21 @@ pointsRouter.put('/visibility', async (req, res) => {
   const body = z.object({ onLeaderboard: z.boolean() }).parse(req.body);
   await db('users').where({ id: userId(res) }).update({ leaderboard: body.onLeaderboard });
   res.json({ ok: true });
+});
+
+/** Opt in (or out) of a public profile page that Google and others can find. */
+pointsRouter.put('/public', async (req, res) => {
+  const uid = userId(res);
+  const body = z.object({ public: z.boolean(), bio: z.string().trim().max(200).optional() }).parse(req.body);
+  const u = await db('users').where({ id: uid }).select('name', 'public_slug').first();
+  const patch: Record<string, unknown> = { public_profile: body.public };
+  if (body.bio !== undefined) patch.bio = body.bio || null;
+  if (body.public && !u?.public_slug) {
+    let slug = slugify(String(u?.name || 'student'));
+    if (await db('users').where({ public_slug: slug }).first()) slug = `${slug}-${crypto.randomBytes(2).toString('hex')}`;
+    patch.public_slug = slug;
+  }
+  await db('users').where({ id: uid }).update(patch);
+  const row = await db('users').where({ id: uid }).select('public_profile', 'public_slug').first();
+  res.json({ publicProfile: !!row.public_profile, publicUrl: row.public_profile ? `${baseUrl(req)}/u/${row.public_slug}` : null });
 });

@@ -272,6 +272,47 @@ migrations['004_points'] = {
   },
 };
 
+
+migrations['005_exams'] = {
+  async up(k) {
+    // Past papers uploaded to a pack, with how their questions are set
+    await createIfMissing(k, 'past_papers', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('pack_id').unsigned().notNullable().references('id').inTable('packs').onDelete('CASCADE');
+      t.string('name', 200).notNullable();
+      t.text('text', 'longtext').notNullable();
+      t.text('analysis', 'longtext').notNullable();
+      t.bigInteger('created_at').notNullable();
+      t.index(['pack_id']);
+    });
+    // "How did the paper go?" after each exam
+    await createIfMissing(k, 'exam_reviews', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('pack_id').unsigned().notNullable().references('id').inTable('packs').onDelete('CASCADE');
+      t.integer('how_it_went').notNullable();
+      t.integer('app_rating');
+      t.integer('readiness');
+      t.text('topics');
+      t.text('comment');
+      t.bigInteger('created_at').notNullable();
+      t.unique(['user_id', 'pack_id']);
+    });
+    // Opt-in public profile pages
+    const add = async (col: string, build: (t: Knex.AlterTableBuilder) => void) => {
+      if (!(await k.schema.hasColumn('users', col))) await k.schema.alterTable('users', build);
+    };
+    await add('public_profile', (t) => t.boolean('public_profile').notNullable().defaultTo(false));
+    await add('public_slug', (t) => t.string('public_slug', 80).unique());
+    await add('bio', (t) => t.string('bio', 200));
+  },
+  async down(k) {
+    await k.schema.dropTableIfExists('exam_reviews');
+    await k.schema.dropTableIfExists('past_papers');
+  },
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

@@ -58,6 +58,16 @@ adminRouter.get('/overview', async (_req, res) => {
     cache: { entries: Number((cache as any)?.n || 0), hits: Number((cache as any)?.hits || 0) },
     today: await aiSummary(today),
     last30: await aiSummary(daysAgo(29)),
+    reviews: await (async () => {
+      const agg = await db('exam_reviews').count({ n: '*' }).avg({ app: 'app_rating' }).avg({ went: 'how_it_went' }).first();
+      const recent = await db('exam_reviews').join('users', 'users.id', 'exam_reviews.user_id').join('packs', 'packs.id', 'exam_reviews.pack_id').orderBy('exam_reviews.id', 'desc').limit(10).select('users.name', 'users.university', 'packs.title', 'exam_reviews.how_it_went', 'exam_reviews.app_rating', 'exam_reviews.readiness', 'exam_reviews.comment', 'exam_reviews.created_at');
+      return {
+        count: Number((agg as any)?.n || 0),
+        appRating: (agg as any)?.app == null ? null : Math.round(Number((agg as any).app) * 10) / 10,
+        howItWent: (agg as any)?.went == null ? null : Math.round(Number((agg as any).went) * 10) / 10,
+        recent: recent.map((r: any) => ({ name: r.name, university: r.university, pack: r.title, howItWent: r.how_it_went, appRating: r.app_rating, readiness: r.readiness, comment: r.comment, at: Number(r.created_at) })),
+      };
+    })(),
   });
 });
 

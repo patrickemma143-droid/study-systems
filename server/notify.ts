@@ -5,6 +5,7 @@ import webpush from 'web-push';
 import { db, now } from './db';
 import { config } from './config';
 import { lastWeek, leaderboard } from './points';
+import { readinessFor } from './readiness';
 
 let keys: { publicKey: string; privateKey: string } | null = null;
 
@@ -108,11 +109,13 @@ async function tick() {
     const dueN = Number((due as any)?.n || 0);
     const studied = await db('activity').where({ user_id: u.id, day: local.day }).sum({ m: 'minutes' }).first();
     const minutes = Math.round(Number((studied as any)?.m || 0));
-    const exams = await db('packs').where({ user_id: u.id }).whereNotNull('exam_date').andWhere('exam_date', '>', local.day).orderBy('exam_date').select('title', 'exam_date').limit(1);
+    const exams = await db('packs').where({ user_id: u.id }).whereNotNull('exam_date').andWhere('exam_date', '>', local.day).orderBy('exam_date').select('id', 'title', 'exam_date').limit(1);
     let examNote = '';
     if (exams.length) {
       const days = Math.round((Date.parse(`${exams[0].exam_date}T12:00:00Z`) - Date.parse(`${local.day}T12:00:00Z`)) / 86400000);
-      if (days <= 7) examNote = days === 1 ? ` ${exams[0].title} is TOMORROW — open your cram plan.` : ` ${exams[0].title} is in ${days} days.`;
+      const r = days <= 3 ? await readinessFor(u.id, exams[0].id).catch(() => null) : null;
+      const ready = r ? ` You’re ${r.score}% ready${r.score >= 85 ? ' — great work!' : r.weak[0] ? `; next, “${r.weak[0].title}”.` : '.'}` : '';
+      if (days <= 7) examNote = days === 1 ? ` ${exams[0].title} is TOMORROW.${ready} Open your cram plan.` : ` ${exams[0].title} is in ${days} days.${ready}`;
     }
     const first = String(u.name || '').split(' ')[0];
     let body: string;
@@ -120,6 +123,13 @@ async function tick() {
     else if (dueN > 0) body = `${dueN} flashcard${dueN === 1 ? '' : 's'} are ready — about ${Math.max(1, Math.round((dueN * 12) / 60))} min to keep them in your memory.${examNote}`;
     else body = `A short session today keeps your streak alive, ${first}.${examNote}`;
     await sendToUser(u.id, { title: 'Charis Study', body, url: examNote.includes('TOMORROW') ? '/home' : dueN ? '/review' : '/plan', tag: 'daily' });
+
+    // The day after a paper: ask how it went
+    const yesterday = new Date(Date.parse(`${local.day}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
+    const sat = await db('packs').where({ user_id: u.id, exam_date: yesterday }).select('id', 'title').first();
+    if (sat && !(await db('exam_reviews').where({ user_id: u.id, pack_id: sat.id }).first()) && (await once(u.id, 'review-ask', `review-ask-${u.id}-${sat.id}`))) {
+      await sendToUser(u.id, { title: `How did ${sat.title} go?`, body: 'Tell us in 20 seconds. It helps us plan your next exam better.', url: '/home', tag: 'exam-review' });
+    }
   }
 }
 

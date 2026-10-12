@@ -61,6 +61,16 @@ export interface PackDetail {
   progress: Record<number, { status: ChunkStatus; bestRecall: number | null }>;
   cards: { total: number; due: number; new: number; learning: number; growing: number; strong: number; byChunk: Record<number, { total: number; known: number }> };
   quiz: { score: number; total: number; at: number }[];
+  readiness?: Readiness | null;
+}
+
+export interface Readiness {
+  score: number;
+  label: 'Not ready yet' | 'Getting there' | 'Nearly ready' | 'Ready';
+  parts: { coverage: number; memory: number; practice: number; explain: number };
+  weak: { index: number; title: string; why: string }[];
+  message: string;
+  daysLeft: number | null;
 }
 
 export interface Card {
@@ -69,6 +79,7 @@ export interface Card {
   packTitle?: string;
   examDate?: string | null;
   chunk: number;
+  chunkTitle?: string | null;
   type: string;
   front: string;
   back: string;
@@ -91,7 +102,7 @@ export interface Stats {
   dueCards: number;
   totalCards: number;
   strongCards: number;
-  exams: { packId: number; title: string; examDate: string }[];
+  exams: { packId: number; title: string; examDate: string; readiness?: { score: number; label: string; message: string } | null }[];
 }
 
 export interface Note<T = Record<string, unknown>> {
