@@ -316,7 +316,7 @@ button.term {
     inset: auto 0 0 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     background: var(--paper);
     border-top: 1px solid var(--line);
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
@@ -1272,6 +1272,28 @@ kbd {
   }
 }
 
+/* ── typed answers ── */
+.rate.suggested {
+  outline: 3px solid var(--biro);
+  outline-offset: 2px;
+}
+.kw {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--r-chip);
+  font-size: 0.8rem;
+}
+.kw.hit {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.kw.miss {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
 /* ── AI helpers ── */
 .ai-card {
   border-left: 4px solid var(--biro);
@@ -1388,5 +1410,124 @@ kbd {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── cram levels ── */
+.cram-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+@media (max-width: 860px) {
+  .cram-levels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.cram-level {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 16px;
+  border-radius: var(--r-sheet);
+  background: var(--paper);
+  border: 2px solid var(--line);
+  border-top: 6px solid var(--tone);
+  box-shadow: var(--shadow-sheet);
+  cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+}
+.cram-level.on {
+  border-color: var(--tone);
+  border-top-width: 6px;
+  background: var(--paper-2);
+}
+
+/* ── timetable ── */
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 10px 12px;
+  border-left: 4px solid var(--tone);
+  border-bottom: 1px dashed var(--line);
+}
+.session-row:last-child {
+  border-bottom: 0;
+}
+.session-row + .session-row {
+  margin-top: 4px;
+}
+.session-row.done .session-title,
+.session-row.skipped .session-title {
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+.session-time {
+  display: flex;
+  flex-direction: column;
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+.session-body {
+  flex: 1;
+  min-width: 0;
+}
+.session-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--tone);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.session-title {
+  overflow-wrap: anywhere;
+}
+.free-days {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.free-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.free-day-name {
+  min-width: 40px;
+}
+.free-window {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--paper-2);
+}
+.free-window input {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+@media (max-width: 560px) {
+  .free-day {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tabbar a {
+    font-size: 0.7rem;
   }
 }

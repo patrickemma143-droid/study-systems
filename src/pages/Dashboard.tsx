@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarDays, FileText, Flame, Globe, Layers, Plus, Presentation, Shuffle, Sparkles, StickyNote } from 'lucide-react';
+import { CalendarClock, CalendarDays, FileText, Flame, Globe, Layers, Plus, Presentation, Shuffle, Sparkles, StickyNote } from 'lucide-react';
 import { api, type PackSummary, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { Loading, Ring, useToast } from '../components/ui';
 import { daysUntil, examLabel, greeting, plural, today } from '../lib/util';
+import { SessionRow, type PlanSession } from './Plan';
 
 const SOURCE_ICON: Record<string, typeof FileText> = { pdf: FileText, docx: FileText, pptx: Presentation, topic: Globe, paste: StickyNote, txt: StickyNote };
 
@@ -15,10 +16,14 @@ export default function Dashboard() {
   const [packs, setPacks] = useState<PackSummary[] | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [making, setMaking] = useState(false);
+  const [todayPlan, setTodayPlan] = useState<PlanSession[] | null>(null);
 
   useEffect(() => {
     api<{ packs: PackSummary[] }>('/packs').then((r) => setPacks(r.packs));
     api<Stats>(`/study/stats?day=${today()}`).then(setStats);
+    api<{ sessions: PlanSession[] }>(`/plan?from=${today()}`)
+      .then((r) => setTodayPlan(r.sessions.filter((s) => s.day === today())))
+      .catch(() => setTodayPlan([]));
   }, []);
 
   async function trySample() {
@@ -106,6 +111,26 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {packs.length > 0 && todayPlan && (
+        <div className="section">
+          <div className="section-head">
+            <h2>Today’s plan</h2>
+            <Link to="/plan" className="btn small">
+              <CalendarClock size={16} /> {todayPlan.length ? 'Full timetable' : 'Make my timetable'}
+            </Link>
+          </div>
+          {todayPlan.length ? (
+            <div className="sheet tight">
+              {todayPlan.map((s) => (
+                <SessionRow key={s.id} s={s} />
+              ))}
+            </div>
+          ) : (
+            <div className="sheet tight small muted">Tell us when you’re free and we’ll plan every session around your exams, and remind you when it’s time.</div>
+          )}
         </div>
       )}
 

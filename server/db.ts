@@ -183,6 +183,68 @@ const migrations: Record<string, { up: (k: Knex) => Promise<void>; down: (k: Kne
   },
 };
 
+
+migrations['003_personal'] = {
+  async up(k) {
+    const addCol = async (table: string, col: string, build: (t: Knex.AlterTableBuilder) => void) => {
+      if (!(await k.schema.hasColumn(table, col))) await k.schema.alterTable(table, build);
+    };
+    // Memory model (FSRS) for each card
+    await addCol('cards', 'stability', (t) => t.float('stability'));
+    await addCol('cards', 'difficulty', (t) => t.float('difficulty'));
+    await addCol('reviews', 'typed', (t) => t.boolean('typed').notNullable().defaultTo(false));
+    // Personal study settings
+    await addCol('users', 'tz_offset', (t) => t.integer('tz_offset').notNullable().defaultTo(180));
+    await addCol('users', 'reminder_time', (t) => t.string('reminder_time', 5).notNullable().defaultTo('19:00'));
+    await addCol('users', 'reminders_on', (t) => t.boolean('reminders_on').notNullable().defaultTo(false));
+    await addCol('users', 'study_prefs', (t) => t.text('study_prefs'));
+    // The timetable
+    await createIfMissing(k, 'plan_sessions', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('pack_id').unsigned().references('id').inTable('packs').onDelete('CASCADE');
+      t.string('day', 10).notNullable();
+      t.string('start', 5).notNullable();
+      t.integer('minutes').notNullable();
+      t.string('kind', 12).notNullable();
+      t.string('title', 200).notNullable();
+      t.text('detail');
+      t.string('status', 10).notNullable().defaultTo('planned');
+      t.boolean('notified').notNullable().defaultTo(false);
+      t.bigInteger('starts_at').notNullable();
+      t.bigInteger('created_at').notNullable();
+      t.index(['user_id', 'day']);
+      t.index(['starts_at']);
+    });
+    // Phones and browsers that accept reminders
+    await createIfMissing(k, 'push_subscriptions', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('endpoint_hash', 64).notNullable().unique();
+      t.text('endpoint').notNullable();
+      t.string('p256dh', 200).notNullable();
+      t.string('auth', 100).notNullable();
+      t.string('device', 120);
+      t.bigInteger('created_at').notNullable();
+    });
+    // Stops the same reminder being sent twice
+    await createIfMissing(k, 'notification_log', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('dedupe', 120).notNullable().unique();
+      t.string('kind', 20).notNullable();
+      t.bigInteger('created_at').notNullable();
+    });
+    await createIfMissing(k, 'app_settings', (t) => {
+      t.string('key', 60).primary();
+      t.text('value').notNullable();
+    });
+  },
+  async down(k) {
+    for (const t of ['app_settings', 'notification_log', 'push_subscriptions', 'plan_sessions']) await k.schema.dropTableIfExists(t);
+  },
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

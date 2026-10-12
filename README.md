@@ -101,6 +101,14 @@ The engine lives in `shared/engine/` and is plain TypeScript with no AI.
 
 ---
 
+## Personal study coach
+
+- **Timetable** (`/plan`): the student enters their free time and exam dates; the app plans the week. Nearest exams and unread lessons come first (most examinable first when the exam is within 3 days), flashcards are booked on the days they fall due, the evening before a paper becomes a cram session, and the plan rebuilds itself as notes, progress and exam dates change. "Add to my phone calendar" downloads an `.ics` file with a 10-minute alarm on each session.
+- **Reminders**: free web push notifications (no SMS cost) 10 minutes before each session, plus a daily nudge at the student's chosen time about due cards and close exams. Works on Android Chrome and desktop browsers; on iPhone the student first adds the app to the Home Screen (iOS 16.4+). Keys are generated automatically and stored in the database; set `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` only if you want fixed keys. `REMINDERS_OFF=true` stops the reminder loop.
+- **Smarter flashcard scheduling** (FSRS-5, the model behind modern Anki): each card has a memory stability and difficulty, and comes back just before it would be forgotten, so students do the fewest reviews for the most remembering. Near an exam, cards that would fade before the paper are brought forward and cards that will last are left alone. Due cards are shown most-at-risk first. Existing cards carry over automatically.
+- **Typed answers**: flashcards can be answered by typing. Short answers are matched forgivingly (small typos allowed); longer ones are marked on the key words included. The app suggests Again / Hard / Good / Easy, and Enter accepts it.
+- **Cram levels**: Chill, Steady, Intense and Extreme, suggested from the exam date and how many lessons are understood. Extreme ("paper tomorrow, nothing read") picks the most examinable lessons that fit before bedtime, teaches them fast in 25-minute sprints with breaks, tests them, lists what was left out, and ends with sleep and a morning plan.
+
 ## AI helpers (optional)
 
 Everything above works with no AI. Add one API key and these appear for logged-in students:
@@ -231,6 +239,8 @@ charis-study/
 │  ├─ routes/study.ts      cards, reviews, quizzes, progress, notes, stats
 │  ├─ routes/ai.ts         optional AI helpers (explain, tutor, marking)
 │  ├─ routes/admin.ts      admin overview, AI usage and cost, Pro upgrades
+│  ├─ routes/plan.ts       timetable, study settings, reminder devices, calendar export
+│  ├─ notify.ts            web push reminders (checks every minute)
 │  ├─ ai/                  AI providers, prompts, shared cache and daily allowances
 │  └─ services/wikipedia.ts
 └─ src/                    React web app (Vite)

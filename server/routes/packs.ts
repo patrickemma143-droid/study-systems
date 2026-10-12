@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { regenerate } from './plan';
 import { z } from 'zod';
 import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
@@ -6,6 +7,16 @@ import { blocksFromPlainText, buildStudyPack, type SourceBlock, type StudyPack }
 import { resourceLinks } from '../../shared/resources';
 import { SAMPLE_NOTES, SAMPLE_TITLE } from '../../shared/sample';
 import { fetchTopic } from '../services/wikipedia';
+
+/** New notes or a new exam date change the timetable: rebuild it in the background. */
+function refreshPlan(uid: number) {
+  db('users')
+    .where({ id: uid })
+    .select('study_prefs')
+    .first()
+    .then((u: any) => (u?.study_prefs && JSON.parse(u.study_prefs).setup ? regenerate(uid) : null))
+    .catch((err: any) => console.warn('Timetable refresh failed:', err?.message || err));
+}
 
 export const packsRouter = Router();
 packsRouter.use(requireAuth);
@@ -81,6 +92,7 @@ packsRouter.post('/', async (req, res) => {
   const pack = buildStudyPack(blocks, { title: body.title || firstHeading || body.sourceName?.replace(/\.[a-z0-9]+$/i, '') });
   assertUsable(pack);
   const id = await savePack(userId(res), pack, { sourceType: body.sourceType, sourceName: body.sourceName, examDate: body.examDate, text });
+  refreshPlan(userId(res));
   res.status(201).json({ id });
 });
 
@@ -99,6 +111,7 @@ packsRouter.post('/topic', async (req, res) => {
   pack.resources = resourceLinks(src.title, src.url, src.simpleUrl);
   pack.simpleIntro = src.simpleIntro;
   const id = await savePack(userId(res), pack, { sourceType: 'topic', sourceName: src.url, examDate: body.examDate, text: src.text });
+  refreshPlan(userId(res));
   res.status(201).json({ id, related: src.related });
 });
 
@@ -106,6 +119,7 @@ packsRouter.post('/sample', async (_req, res) => {
   const pack = buildStudyPack(blocksFromPlainText(SAMPLE_NOTES), { title: SAMPLE_TITLE });
   pack.resources = resourceLinks('cell biology mitosis meiosis');
   const id = await savePack(userId(res), pack, { sourceType: 'paste', sourceName: 'Sample lecture', text: SAMPLE_NOTES });
+  refreshPlan(userId(res));
   res.status(201).json({ id });
 });
 
@@ -216,6 +230,7 @@ packsRouter.patch('/:id', async (req, res) => {
   if (body.title !== undefined) patch.title = body.title;
   if (body.examDate !== undefined) patch.exam_date = body.examDate;
   await db('packs').where({ id }).update(patch);
+  refreshPlan(userId(res));
   res.json({ ok: true });
 });
 
@@ -224,5 +239,6 @@ packsRouter.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   await ownPack(uid, id);
   await db('packs').where({ id, user_id: uid }).delete();
+  refreshPlan(userId(res));
   res.json({ ok: true });
 });

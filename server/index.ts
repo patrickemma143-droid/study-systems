@@ -12,6 +12,8 @@ import { packsRouter } from './routes/packs';
 import { studyRouter } from './routes/study';
 import { aiRouter } from './routes/ai';
 import { adminRouter } from './routes/admin';
+import { planRouter } from './routes/plan';
+import { startReminders } from './notify';
 
 const app = express();
 app.disable('x-powered-by');
@@ -69,6 +71,7 @@ app.use('/api/packs', packsRouter);
 app.use('/api/study', studyRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/plan', planRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Serve the built web app in production (npm run build && npm start)
@@ -126,6 +129,7 @@ async function connectDatabase(attempt = 1): Promise<void> {
     await migrate();
     dbState.ready = true;
     dbState.error = null;
+    startReminders();
     console.log('  Database ready.');
   } catch (err) {
     dbState.error = safeMessage(err);

@@ -77,6 +77,9 @@ export interface Card {
   interval: number;
   reps: number;
   lapses: number;
+  stability: number | null;
+  difficulty: number | null;
+  lastReviewedAt: number | null;
   dueAt: number;
   suspended: boolean;
 }

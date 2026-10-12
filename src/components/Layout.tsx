@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Home, Layers, Plus, UserRound } from 'lucide-react';
+import { CalendarClock, Home, Layers, Plus, UserRound } from 'lucide-react';
 import { api, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { today } from '../lib/util';
@@ -45,6 +45,9 @@ export function Layout() {
             <NavLink to="/review">
               <Layers size={18} /> Review {due > 0 && <span className="badge">{due > 99 ? '99+' : due}</span>}
             </NavLink>
+            <NavLink to="/plan">
+              <CalendarClock size={18} /> Timetable
+            </NavLink>
             <NavLink to="/new">
               <Plus size={18} /> New study pack
             </NavLink>
@@ -74,6 +77,10 @@ export function Layout() {
           <Layers size={22} />
           Review
           {due > 0 && <span className="badge">{due > 99 ? '99+' : due}</span>}
+        </NavLink>
+        <NavLink to="/plan">
+          <CalendarClock size={22} />
+          Plan
         </NavLink>
         <NavLink to="/new">
           <Plus size={22} />

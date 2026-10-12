@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { Check, EyeOff, Pencil, PartyPopper, Volume2, X } from 'lucide-react';
+import { Check, CircleHelp, EyeOff, Keyboard, Pencil, PartyPopper, Volume2, X } from 'lucide-react';
 import { previewLabel, type Rating } from '@shared/srs';
+import { markTyped, type TypedMark } from '@shared/engine/typed';
 import { api, type Card } from '../api';
 import { Bar, Crumbs, Loading, useToast } from '../components/ui';
 import { invalidatePack, usePack, useStudyTimer } from '../lib/usePack';
 import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
-import { plural, today } from '../lib/util';
+import { plural, save, store, today } from '../lib/util';
 
 const RATINGS: { r: Rating; label: string; cls: string; key: string }[] = [
   { r: 1, label: 'Again', cls: 'again', key: '1' },
@@ -33,6 +34,10 @@ export default function Flashcards() {
   const [done, setDone] = useState({ reviewed: 0, again: 0, good: 0 });
   const [editing, setEditing] = useState<{ front: string; back: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [typeMode, setTypeMode] = useState<boolean>(() => store('cs-type-answers', false));
+  const [typed, setTyped] = useState('');
+  const [mark, setMark] = useState<TypedMark | null>(null);
+  const shownAt = useRef(Date.now());
 
   const load = useCallback(async () => {
     setQueue(null);
@@ -53,12 +58,29 @@ export default function Flashcards() {
 
   const card = queue?.[pos];
 
+  useEffect(() => {
+    setTyped('');
+    setMark(null);
+    shownAt.current = Date.now();
+  }, [card?.id, pos]);
+
+  useEffect(() => {
+    save('cs-type-answers', typeMode);
+  }, [typeMode]);
+
+  function checkTyped(e?: FormEvent) {
+    e?.preventDefault();
+    if (!card) return;
+    setMark(markTyped(typed, card.back, (Date.now() - shownAt.current) / 1000));
+    setFlipped(true);
+  }
+
   const rate = useCallback(
     async (rating: Rating) => {
       if (!card || busy) return;
       setBusy(true);
       try {
-        const r = await api<{ card: Card }>(`/study/cards/${card.id}/review`, { body: { rating, day: today() } });
+        const r = await api<{ card: Card }>(`/study/cards/${card.id}/review`, { body: { rating, day: today(), typed: !!mark } });
         setDone((d) => ({ reviewed: d.reviewed + 1, again: d.again + (rating === 1 ? 1 : 0), good: d.good + (rating >= 3 ? 1 : 0) }));
         setQueue((q) => {
           if (!q) return q;
@@ -75,20 +97,24 @@ export default function Flashcards() {
         setBusy(false);
       }
     },
-    [card, busy, packId, toast],
+    [card, busy, packId, toast, mark],
   );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editing || (e.target as HTMLElement).closest('input,textarea')) return;
-      if (e.key === ' ' || e.key === 'Enter') {
+      if (e.key === 'Enter' && flipped && mark) {
         e.preventDefault();
-        setFlipped((f) => !f);
+        rate(mark.suggested);
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        if (typeMode && !flipped) checkTyped();
+        else setFlipped((f) => !f);
       } else if (flipped && ['1', '2', '3', '4'].includes(e.key)) rate(Number(e.key) as Rating);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flipped, rate, editing]);
+  }, [flipped, rate, editing, mark, typeMode, typed, card]);
 
   async function saveEdit() {
     if (!card || !editing) return;
@@ -120,9 +146,13 @@ export default function Flashcards() {
         <div>
           <h1 style={{ marginBottom: 2 }}>{packId ? 'Flashcards' : 'Today’s review'}</h1>
           <p className="muted small" style={{ margin: 0 }}>
-            {chunks ? `Lesson ${Number(chunks.split(',')[0]) + 1}. ` : ''}Try to answer before you flip. Be honest when you rate yourself.
+            {chunks ? `Lesson ${Number(chunks.split(',')[0]) + 1}. ` : ''}
+            {typeMode ? 'Type your answer, then we mark it and suggest a rating.' : 'Try to answer before you flip. Be honest when you rate yourself.'}
           </p>
         </div>
+        <button className="chip" aria-pressed={typeMode} onClick={() => setTypeMode((t) => !t)} title="Typing answers makes you recall them properly, so they stick better">
+          <Keyboard size={14} /> Type answers
+        </button>
         <div className="segmented" role="group" aria-label="Which cards">
           <button aria-pressed={mode === 'due'} onClick={() => setMode('due')}>
             Due
@@ -238,15 +268,48 @@ export default function Flashcards() {
 
           {!editing && (
             <>
+              {flipped && mark && <TypedResult mark={mark} typed={typed} />}
               {flipped ? (
                 <div className="ratings">
                   {RATINGS.map((x) => (
-                    <button key={x.r} className={`rate ${x.cls}`} onClick={() => rate(x.r)} disabled={busy}>
+                    <button key={x.r} className={`rate ${x.cls} ${mark?.suggested === x.r ? 'suggested' : ''}`} onClick={() => rate(x.r)} disabled={busy} aria-describedby={mark?.suggested === x.r ? 'suggest-note' : undefined}>
                       {x.label}
-                      <small>{previewLabel({ ease: card.ease, interval_days: card.interval, reps: card.reps, lapses: card.lapses }, x.r, card.examDate)}</small>
+                      <small>
+                        {previewLabel(
+                          { ease: card.ease, interval_days: card.interval, reps: card.reps, lapses: card.lapses, stability: card.stability, difficulty: card.difficulty, last_reviewed_at: card.lastReviewedAt },
+                          x.r,
+                          card.examDate,
+                        )}
+                      </small>
                     </button>
                   ))}
                 </div>
+              ) : typeMode ? (
+                <form onSubmit={checkTyped} style={{ maxWidth: 640, margin: '18px auto 0' }} className="stack">
+                  <textarea
+                    className="textarea"
+                    style={{ minHeight: 80 }}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        checkTyped();
+                      }
+                    }}
+                    placeholder="Type your answer… (Enter to check, Shift+Enter for a new line)"
+                    aria-label="Your answer"
+                    autoFocus
+                  />
+                  <div className="row" style={{ flexWrap: 'nowrap' }}>
+                    <button type="button" className="btn" onClick={() => checkTyped()}>
+                      <CircleHelp size={17} /> I don’t know
+                    </button>
+                    <button className="btn primary big" style={{ flex: 1 }}>
+                      Check my answer
+                    </button>
+                  </div>
+                </form>
               ) : (
                 <div style={{ maxWidth: 640, margin: '18px auto 0' }}>
                   <button className="btn primary big block" onClick={() => setFlipped(true)}>
@@ -268,7 +331,15 @@ export default function Flashcards() {
                 </button>
               </div>
               <div className="kbd-hints">
-                <kbd>Space</kbd> flip, then <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> to rate
+                {typeMode ? (
+                  <>
+                    <kbd>Enter</kbd> check, then <kbd>Enter</kbd> to accept the suggested rating or <kbd>1</kbd>–<kbd>4</kbd> to choose
+                  </>
+                ) : (
+                  <>
+                    <kbd>Space</kbd> flip, then <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> to rate
+                  </>
+                )}
               </div>
             </>
           )}
@@ -279,6 +350,45 @@ export default function Flashcards() {
           <X size={12} style={{ display: 'inline' }} /> {done.again} to repeat, {done.reviewed} reviewed so far
         </p>
       )}
+    </div>
+  );
+}
+
+const VERDICT = {
+  right: { label: 'Correct', color: 'var(--good)', bg: 'var(--good-soft)' },
+  close: { label: 'Nearly there', color: 'var(--warn)', bg: 'var(--paper-2)' },
+  wrong: { label: 'Not yet', color: 'var(--bad)', bg: 'var(--bad-soft)' },
+} as const;
+
+function TypedResult({ mark, typed }: { mark: TypedMark; typed: string }) {
+  const v = VERDICT[mark.verdict];
+  const hits = mark.keywords.filter((k) => k.hit).length;
+  return (
+    <div className="sheet tight" style={{ maxWidth: 640, margin: '16px auto 0', borderLeft: `5px solid ${v.color}` }} aria-live="polite">
+      <div className="row between">
+        <strong style={{ color: v.color }}>{v.label}</strong>
+        {mark.keywords.length > 1 && (
+          <span className="small muted">
+            {hits} of {mark.keywords.length} key words
+          </span>
+        )}
+      </div>
+      <div className="small" style={{ marginTop: 6 }}>
+        <span className="muted">You wrote: </span>
+        {typed.trim() ? <span style={{ whiteSpace: 'pre-wrap' }}>{typed.trim()}</span> : <em className="muted">nothing</em>}
+      </div>
+      {mark.keywords.length > 1 && (
+        <div className="row" style={{ gap: 6, marginTop: 8 }}>
+          {mark.keywords.map((k) => (
+            <span key={k.word} className={`kw ${k.hit ? 'hit' : 'miss'}`}>
+              {k.hit ? <Check size={12} /> : <X size={12} />} {k.word}
+            </span>
+          ))}
+        </div>
+      )}
+      <p id="suggest-note" className="hint" style={{ margin: '8px 0 0' }}>
+        We suggest <strong>{RATINGS.find((r) => r.r === mark.suggested)?.label}</strong>. Press Enter to accept, or pick another if you disagree.
+      </p>
     </div>
   );
 }

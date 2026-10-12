@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
-import { schedule, type Rating } from '../../shared/srs';
+import { recallNow, schedule, type Rating } from '../../shared/srs';
 import type { QuizQuestion, StudyPack } from '../../shared/engine/types';
 
 export const studyRouter = Router();
@@ -25,6 +25,9 @@ function cardOut(c: any) {
     interval: Number(c.interval_days),
     reps: Number(c.reps),
     lapses: Number(c.lapses),
+    stability: c.stability == null ? null : Number(c.stability),
+    difficulty: c.difficulty == null ? null : Number(c.difficulty),
+    lastReviewedAt: c.last_reviewed_at == null ? null : Number(c.last_reviewed_at),
     dueAt: Number(c.due_at),
     suspended: !!c.suspended,
   };
@@ -54,29 +57,45 @@ studyRouter.get('/cards', async (req, res) => {
   if (q.mode === 'due') {
     query = query.where('cards.due_at', '<=', t).orderByRaw('CASE WHEN cards.reps > 0 THEN 0 ELSE 1 END').orderBy('cards.due_at', 'asc');
   } else if (q.mode === 'weak') {
-    query = query.where((w) => w.where('cards.lapses', '>', 0).orWhere('cards.ease', '<', 2.3)).orderBy('cards.lapses', 'desc');
+    query = query.where((w) => w.where('cards.lapses', '>', 0).orWhere('cards.difficulty', '>', 7).orWhere('cards.ease', '<', 2.3)).orderBy('cards.lapses', 'desc');
   } else {
     query = query.orderBy([{ column: 'cards.chunk_index' }, { column: 'cards.id' }]);
   }
-  const rows = await query.limit(q.limit);
+  let rows: any[];
+  if (q.mode === 'due') {
+    // Most-at-risk first: the cards you are closest to forgetting come up before the safe ones.
+    const pool = await query.limit(Math.max(q.limit, 400));
+    const state = (c: any) => ({ ease: Number(c.ease), interval_days: Number(c.interval_days), reps: Number(c.reps), lapses: Number(c.lapses), stability: c.stability == null ? null : Number(c.stability), last_reviewed_at: c.last_reviewed_at == null ? null : Number(c.last_reviewed_at) });
+    const reviewed = pool.filter((c: any) => Number(c.reps) > 0 || c.last_reviewed_at).sort((a: any, b: any) => recallNow(state(a), t) - recallNow(state(b), t));
+    const fresh = pool.filter((c: any) => !(Number(c.reps) > 0 || c.last_reviewed_at));
+    rows = [...reviewed, ...fresh].slice(0, q.limit);
+  } else rows = await query.limit(q.limit);
   const dueCount = await db('cards').where({ user_id: uid, suspended: false }).andWhere('due_at', '<=', t).modify((b) => q.packId && b.where('pack_id', q.packId)).count({ n: '*' }).first();
   res.json({ cards: rows.map(cardOut), dueTotal: Number((dueCount as any)?.n || 0) });
 });
 
 studyRouter.post('/cards/:id/review', async (req, res) => {
   const uid = userId(res);
-  const body = z.object({ rating: z.number().int().min(1).max(4), day }).parse(req.body);
+  const body = z.object({ rating: z.number().int().min(1).max(4), day, typed: z.boolean().optional() }).parse(req.body);
   const card = await db('cards').join('packs', 'packs.id', 'cards.pack_id').where({ 'cards.id': Number(req.params.id), 'cards.user_id': uid }).select('cards.*', 'packs.exam_date').first();
   if (!card) throw new HttpError(404, 'Card not found.');
   const t = now();
   const next = schedule(
-    { ease: Number(card.ease), interval_days: Number(card.interval_days), reps: Number(card.reps), lapses: Number(card.lapses) },
+    {
+      ease: Number(card.ease),
+      interval_days: Number(card.interval_days),
+      reps: Number(card.reps),
+      lapses: Number(card.lapses),
+      stability: card.stability == null ? null : Number(card.stability),
+      difficulty: card.difficulty == null ? null : Number(card.difficulty),
+      last_reviewed_at: card.last_reviewed_at == null ? null : Number(card.last_reviewed_at),
+    },
     body.rating as Rating,
     t,
     card.exam_date,
   );
   await db('cards').where({ id: card.id }).update(next);
-  await db('reviews').insert({ user_id: uid, card_id: card.id, rating: body.rating, interval_days: next.interval_days, reviewed_at: t, day: body.day });
+  await db('reviews').insert({ user_id: uid, card_id: card.id, rating: body.rating, interval_days: next.interval_days, reviewed_at: t, day: body.day, typed: !!body.typed });
   res.json({ card: cardOut({ ...card, ...next }) });
 });
 
