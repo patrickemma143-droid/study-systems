@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,8 +22,21 @@ function resolveDataDir(): string {
   return path.join(root, 'data');
 }
 
-const dataDir = resolveDataDir();
-fs.mkdirSync(dataDir, { recursive: true });
+/** Use the first folder we can actually create/write; never crash at startup over it. */
+function usableDir(candidates: string[]): string {
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {
+      /* try the next one */
+    }
+  }
+  return os.tmpdir();
+}
+
+const dataDir = usableDir([resolveDataDir(), path.join(root, 'data'), path.join(os.tmpdir(), 'charis-data')]);
 
 function loadSecret(): string {
   const fromEnv = process.env.JWT_SECRET;
@@ -31,7 +45,11 @@ function loadSecret(): string {
   const file = path.join(dataDir, '.secret');
   if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
   const secret = crypto.randomBytes(48).toString('hex');
-  fs.writeFileSync(file, secret, { mode: 0o600 });
+  try {
+    fs.writeFileSync(file, secret, { mode: 0o600 });
+  } catch {
+    console.warn('⚠  Could not save the session secret to disk; logins will reset on restart. Set JWT_SECRET.');
+  }
   if (process.env.NODE_ENV === 'production') {
     console.warn(`⚠  JWT_SECRET is not set — generated one in ${file}. Set JWT_SECRET in your host's environment variables.`);
   }
@@ -53,7 +71,8 @@ const dbClient = (env.DB_CLIENT || (url || env.MYSQL_USER || env.DB_USER ? 'mysq
 export const config = {
   root,
   dataDir,
-  port: Number(process.env.PORT) || 8787,
+  // Hostinger expects Node apps on port 3000 when it doesn't pass PORT.
+  port: Number(process.env.PORT) || 3000,
   isProd: process.env.NODE_ENV === 'production',
   jwtSecret: loadSecret(),
   cookieSecure: process.env.COOKIE_SECURE === 'true',

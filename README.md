@@ -21,7 +21,7 @@ Open **http://localhost:5173**. Create an account, then click **Try a sample lec
 
 `npm run dev` runs two things together:
 
-- the API on port 8787
+- the API on port 3000
 - the web app on port 5173, which forwards `/api` to the API
 
 The SQLite database creates itself in `data/charis-study.db` the first time it runs.
@@ -30,7 +30,7 @@ The SQLite database creates itself in `data/charis-study.db` the first time it r
 
 ```bash
 npm run build      # builds the web app into dist/ and the server into build/server.js
-npm start          # runs server.js: one Node process serves the API and the app on PORT (default 8787)
+npm start          # runs server.js: one Node process serves the API and the app on PORT (default 3000, which Hostinger expects)
 ```
 
 To check the study engine on its own, run `npm run test:engine`. Add `-v` to see every card and question it makes from the sample lecture.
@@ -154,6 +154,8 @@ Hostinger runs Node.js apps straight from GitHub. Once you connect it, **every p
 
 **Restarting:** use the Restart option on the website dashboard. Server logs are on the deployment page.
 
+**Checking it's healthy:** open `https://<your-site>/api/health`. It shows `"ok": true` when the server and database are connected. Otherwise it says what's wrong, for example a wrong `DB_PASSWORD`. If the database is unreachable, the site stays up and retries in the background instead of crashing.
+
 ### VPS (any provider)
 
 ```bash
@@ -163,7 +165,7 @@ cp .env.example .env    # set JWT_SECRET, COOKIE_SECURE=true, and DB_* if you us
 npm i -g pm2 && pm2 start server.js --name charis-study && pm2 save
 ```
 
-Put Nginx in front (`proxy_pass http://127.0.0.1:8787;`) and add HTTPS with Certbot.
+Put Nginx in front (`proxy_pass http://127.0.0.1:3000;`) and add HTTPS with Certbot.
 
 ### Environment variables
 

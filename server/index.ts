@@ -34,9 +34,23 @@ app.use(
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
 
+// The web server starts straight away; the database connects (and retries) in the background.
+// Until it is ready, API calls get a clear 503 and /api/health explains why — no silent crash.
+const dbState: { ready: boolean; error: string | null } = { ready: false, error: 'Connecting…' };
+
 app.get('/api/health', async (_req, res) => {
-  await db.raw('select 1');
-  res.json({ ok: true, engine: 'built-in (API-free)' });
+  let dbOk = dbState.ready;
+  if (dbOk) dbOk = await db.raw('select 1').then(() => true, () => false);
+  res.status(dbOk ? 200 : 503).json({
+    ok: dbOk,
+    database: dbOk ? `${config.dbClient} connected` : `${config.dbClient}: ${dbState.error}`,
+    engine: 'built-in (API-free)',
+    node: process.version,
+  });
+});
+app.use('/api', (req, res, next) => {
+  if (dbState.ready) return next();
+  res.status(503).json({ error: 'Charis Study is starting up or can’t reach its database. Try again in a minute.' });
 });
 app.use('/api/auth', authRouter);
 app.use('/api/packs', packsRouter);
@@ -66,20 +80,30 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.' });
 });
 
-migrate()
-  .then(() => {
-    app.listen(config.port, () => {
-      console.log(`\n  Charis Study API running on http://localhost:${config.port}`);
-      console.log(`  Database: ${config.dbClient === 'mysql' ? `MySQL (${config.mysql.database} on ${config.mysql.host})` : config.sqliteFile}`);
-      if (!fs.existsSync(path.join(config.distDir, 'index.html'))) console.log('  Web app (dev): http://localhost:5173\n');
-    });
-  })
-  .catch((err) => {
-    console.error('Could not set up the database:', err?.message || err);
-    if (String(err?.message).includes('better-sqlite3')) {
-      console.error('The SQLite driver is not installed on this server. Set DB_CLIENT=mysql and the MYSQL_* variables to use MySQL instead.');
-    } else if (config.dbClient === 'mysql') {
-      console.error('Check MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD and MYSQL_DATABASE, and that the database exists.');
-    }
-    process.exit(1);
-  });
+app.listen(config.port, () => {
+  console.log(`\n  Charis Study running on port ${config.port}`);
+  console.log(`  Database: ${config.dbClient === 'mysql' ? `MySQL (${config.mysql.database} on ${config.mysql.host})` : config.sqliteFile}`);
+  if (!fs.existsSync(path.join(config.distDir, 'index.html'))) console.log('  Web app (dev): http://localhost:5173\n');
+});
+
+/** Hide user names in database errors that /api/health shows publicly. */
+function safeMessage(err: any): string {
+  let msg = String(err?.message || err).replace(/'[^']*'@'[^']*'/g, "'***'@'***'");
+  if (msg.includes('better-sqlite3')) msg = 'SQLite driver not installed on this server. Set the DB_* variables to use MySQL.';
+  else if (config.dbClient === 'mysql' && /ECONNREFUSED|ENOTFOUND|Access denied|Unknown database/i.test(msg)) msg += ' — check DB_HOST, DB_USER, DB_PASSWORD and DB_NAME.';
+  return msg;
+}
+
+async function connectDatabase(attempt = 1): Promise<void> {
+  try {
+    await migrate();
+    dbState.ready = true;
+    dbState.error = null;
+    console.log('  Database ready.');
+  } catch (err) {
+    dbState.error = safeMessage(err);
+    console.error(`Could not set up the database (attempt ${attempt}): ${dbState.error}`);
+    setTimeout(() => connectDatabase(attempt + 1), Math.min(60000, 5000 * attempt));
+  }
+}
+connectDatabase();
