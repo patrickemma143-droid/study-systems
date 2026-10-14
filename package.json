@@ -2,7 +2,7 @@
   "name": "charis-study",
   "version": "1.0.0",
   "private": true,
-  "description": "Charis Study — break any notes, PDF or topic into bite-size chunks and remember them with flashcards, spaced repetition, quizzes, memory palace, mnemonics and more.",
+  "description": "Charis Study \u2014 break any notes, PDF or topic into bite-size chunks and remember them with flashcards, spaced repetition, quizzes, memory palace, mnemonics and more.",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -11,12 +11,13 @@
     "dev": "concurrently -k -n api,web -c green,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch --clear-screen=false server/index.ts",
     "dev:web": "vite",
-    "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=build/server.js",
+    "build": "node scripts/copy-ocr.mjs && vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=build/server.js",
     "start": "node server.js",
     "typecheck": "tsc --noEmit && node scripts/check-effects.mjs",
     "test:engine": "tsx scripts/engine-smoke.ts"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.0",
@@ -25,6 +26,7 @@
     "helmet": "^8.1.0",
     "jose": "^6.0.0",
     "knex": "^3.1.0",
+    "tesseract.js": "^5.1.1",
     "web-push": "^3.6.7",
     "zod": "^4.1.0"
   },

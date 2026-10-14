@@ -7,3 +7,4 @@ data/.secret
 .env
 .DS_Store
 !data/.gitkeep
+public/ocr/

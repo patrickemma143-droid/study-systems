@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpenCheck, CalendarDays, Check, ExternalLink, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
+import { BookOpenCheck, CalendarDays, Check, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { AiPackExplainer } from '../components/AiPanels';
@@ -166,6 +166,18 @@ export default function PackHome() {
       </div>
 
       {data.readiness && (pack.examDate || data.readiness.score > 0) && <ReadinessCard r={data.readiness} packId={id} />}
+
+      <div className="sheet tight row between ai-card" style={{ marginTop: 18, borderLeftColor: 'var(--hl-orange)' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <strong className="row" style={{ gap: 8 }}>
+            <FileUp size={18} color="var(--biro)" /> Got past papers for this course?
+          </strong>
+          <div className="small muted">Upload them with their marking keys. We learn how your examiners set questions, let you practise the real papers, and make new mock papers in the same style.</div>
+        </div>
+        <Link to="paper#past-papers" className="btn primary">
+          <FileUp size={16} /> Upload a past paper
+        </Link>
+      </div>
 
       <section className="section">
         <div className="section-head">

@@ -313,6 +313,16 @@ migrations['005_exams'] = {
   },
 };
 
+
+migrations['006_paper_keys'] = {
+  async up(k) {
+    // A past paper's marking key (answer scheme), and what we learnt from it
+    if (!(await k.schema.hasColumn('past_papers', 'key_text'))) await k.schema.alterTable('past_papers', (t) => t.text('key_text', 'longtext'));
+    if (!(await k.schema.hasColumn('past_papers', 'key_analysis'))) await k.schema.alterTable('past_papers', (t) => t.text('key_analysis', 'longtext'));
+  },
+  async down() {},
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

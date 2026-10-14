@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { ai, config } from './config';
+import { complete } from './ai/providers';
 import { db, migrate } from './db';
 import { authRouter, HttpError } from './auth';
 import { packsRouter } from './routes/packs';
@@ -27,7 +28,7 @@ app.use(
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
-        'script-src': ["'self'"],
+        'script-src': ["'self'", "'wasm-unsafe-eval'"], // wasm: text recognition runs in the browser
         'style-src': ["'self'", "'unsafe-inline'"],
         'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
@@ -53,6 +54,7 @@ app.get('/api/health', async (_req, res) => {
     ok: dbOk,
     database: dbOk ? `${config.dbClient} connected` : `${config.dbClient}: ${dbState.error}`,
     engine: ai.enabled ? `built-in + AI (${ai.provider}, ${ai.model})` : 'built-in (API-free)',
+    ...(ai.enabled ? { aiCheck } : {}),
     node: process.version,
   });
 });
@@ -132,12 +134,29 @@ function safeMessage(err: any): string {
   return msg;
 }
 
+/** One tiny request at start-up, so /api/health shows whether the AI key really works. */
+let aiCheck = 'not checked yet';
+async function checkAi() {
+  if (!ai.enabled || ai.provider === 'mock') {
+    aiCheck = ai.provider === 'mock' ? 'mock' : aiCheck;
+    return;
+  }
+  try {
+    const r = await complete({ system: 'Reply with the single word OK.', messages: [{ role: 'user', content: 'Say OK' }], maxTokens: 64, temperature: 0 });
+    aiCheck = r.text ? 'working' : 'empty reply';
+  } catch (err: any) {
+    aiCheck = `failed: ${String(err?.message || err).slice(0, 160)}`;
+    console.error('AI check failed:', err?.message || err);
+  }
+}
+
 async function connectDatabase(attempt = 1): Promise<void> {
   try {
     await migrate();
     dbState.ready = true;
     dbState.error = null;
     startReminders();
+    checkAi();
     console.log('  Database ready.');
   } catch (err) {
     dbState.error = safeMessage(err);

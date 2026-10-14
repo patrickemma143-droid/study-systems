@@ -1700,3 +1700,24 @@ kbd {
     font-size: 11pt;
   }
 }
+.upload-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-ctl);
+  background: var(--paper-2);
+}
+.key-answer {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-left: 4px solid var(--good);
+  background: var(--good-soft);
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+label.btn {
+  cursor: pointer;
+}

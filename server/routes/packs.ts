@@ -35,7 +35,7 @@ const blockSchema = z.object({
 const createSchema = z
   .object({
     title: z.string().trim().max(200).optional(),
-    sourceType: z.enum(['pdf', 'docx', 'pptx', 'txt', 'paste']),
+    sourceType: z.enum(['pdf', 'docx', 'pptx', 'txt', 'paste', 'image']),
     sourceName: z.string().trim().max(255).optional(),
     blocks: z.array(blockSchema).max(60_000).optional(),
     text: z.string().max(1_500_000).optional(),

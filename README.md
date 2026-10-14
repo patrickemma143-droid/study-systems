@@ -128,7 +128,8 @@ Flashcards also gained **Previous card**: step back through the cards answered i
 
 - **Quiz levels**: Easy (fewer, clearer choices), Medium (the standard quiz) and Hard ("twisted": NOT questions, swapped definitions, choose the one correct description, type the term with no options). Points per correct answer: 1, 2 and 4.
 - **Mock exam paper** (`/pack/:id/paper`): objective, short-answer and structured/essay sections with marks, instructions, time and a marking guide. Download as PDF (print → Save as PDF) or as a Word file.
-- **Past papers**: upload (PDF, Word, text) or paste a past paper. The app finds the questions, sections, marks, time, the "answer any THREE" rule, the command words examiners use and which of the student's topics came up, then sets mock papers in the same style.
+- **Scanned PDFs and photos**: pages that are pictures are read with text recognition (Tesseract OCR) in the student's browser — nothing is uploaded. Students choose the pages (big books: one pack per chapter). Repeated book headers and specks are removed; formulas, tables and diagrams in scans come out rough. The OCR engine is copied from `node_modules` into `public/ocr` at build time.
+- **Past papers**: upload (PDF, Word, scans, photos, text) or paste a past paper, with its marking key if you have it. The app finds the questions, sections, marks, time, the "answer any THREE" rule, the command words examiners use and which of the student's topics came up, then sets mock papers in the same style. Students can also practise the real past paper question by question, with the key's answer one tap away.
 - **Exam readiness** on each pack and on Home: a score from lessons understood, what is remembered right now, quiz scores and explanations, the weakest lessons to fix next, and an encouraging message. Reminders in the last three days include it.
 - **After the paper**: the day after the exam date the student is asked how it went, which topics came up and whether the app helped. Results appear on the admin page.
 - Lessons show a clear **Start reading / End of lesson** marker with highlighted headings, and each flashcard shows which lesson it comes from.
@@ -160,7 +161,7 @@ Everything above works with no AI. Add one API key and these appear for logged-i
 
 1. Get a key. Gemini: [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Claude: [Claude Console](https://console.anthropic.com) → *API keys*.
 2. hPanel → your Node.js app → **Environment variables**, add `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) and `ADMIN_EMAILS` (your login email), then **Save and redeploy**.
-3. Open `/api/health`. The `engine` line should say `built-in + AI (gemini, …)`.
+3. Open `/api/health`. The `engine` line should say `built-in + AI (gemini, …)` and `aiCheck` should say `working` (otherwise it shows the error, e.g. an invalid key or model name).
 
 **Privacy note.** On the Gemini API's **free tier**, Google may use the content you send to improve its products. Turn on billing for the project (paid tier) before real students' notes go through it. A Google AI Pro or "Gemini for students" subscription covers the Gemini app only; the API is billed separately.
 

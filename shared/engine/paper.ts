@@ -19,6 +19,7 @@ export interface PaperQuestion {
   command: string | null;
   section: string | null;
   objective: boolean;
+  options?: string[];
 }
 
 export interface PaperAnalysis {
@@ -34,6 +35,8 @@ export interface PaperAnalysis {
   marks: { typical: number | null; min: number | null; max: number | null };
   mix: { objective: number; short: number; long: number };
   samples: string[];
+  /** Every question found, for practising the real paper */
+  questions?: PaperQuestion[];
   topics: { chunk: number; title: string; hits: number }[];
 }
 
@@ -51,12 +54,14 @@ const commandIn = (s: string) => {
   return best ? (best.w === 'analyze' ? 'analyse' : best.w) : null;
 };
 
-export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
-  // PDFs often run several questions together on one line: split them back apart.
-  // Question numbers are trusted only when they follow on (1, 2, 3…), so "3 marks" or "2.5" don't split.
+/**
+ * PDFs and scans often run several questions together on one line: split them back apart.
+ * Question numbers are trusted only when they follow on (1, 2, 3…), so "3 marks" or "2.5" don't split.
+ */
+export function splitNumbered(text: string): string[] {
   let spaced = text.replace(/\r/g, '').replace(/[ \t]+(?=SECTION\s+[A-Z0-9]\b)/g, '\n');
   let expect = 1;
-  spaced = spaced.replace(/(^|[ \t\n])((?:Q(?:uestion)?\.?\s*)?(\d{1,2})\s*[.)]\s+)(?=[A-Z(])/g, (m, pre: string, q: string, num: string) => {
+  spaced = spaced.replace(/(^|[ \t\n])((?:Q(?:uestion)?\.?\s*)?(\d{1,2})\s*[.)]\s+)(?=[A-Z(a-z])/g, (m, pre: string, q: string, num: string) => {
     const n = Number(num);
     if (n === expect || (n === 1 && expect > 1)) {
       expect = n + 1;
@@ -66,7 +71,11 @@ export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
   });
   // multiple-choice options "A. … B. … C. …" on one line
   spaced = spaced.replace(/(?<![Ss]ection|SECTION|[Pp]art|PART)[ \t]+(?=[A-D][.)][ \t]+\S)/g, '\n');
-  const lines = spaced.split('\n').map((l) => l.trim()).filter(Boolean);
+  return spaced.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
+  const lines = splitNumbered(text);
   const questions: PaperQuestion[] = [];
   const sections: PaperAnalysis['sections'] = [];
   const instructions: string[] = [];
@@ -106,7 +115,10 @@ export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
       continue;
     }
     if (cur) {
-      if (opt) optionLines++;
+      if (opt) {
+        optionLines++;
+        (cur.options ||= []).push(line.replace(/^\(?[a-dA-D][.)\-–]?\s*/, '').trim());
+      }
       else if (/^\(?([ivx]+|[a-h])\)\s+/i.test(line) || line.length > 3) {
         if (cur.text.length < 1200) cur.text += ` ${line}`;
         cur.marks ??= marksIn(line);
@@ -154,6 +166,7 @@ export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
     marks: { typical: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null, min: sorted[0] ?? null, max: sorted[sorted.length - 1] ?? null },
     mix: { objective, short: questions.length - objective - long, long },
     samples: questions.filter((q) => !q.objective).slice(0, 6).map((q) => q.text.slice(0, 220)),
+    questions: questions.slice(0, 80),
     topics,
   };
 }
@@ -276,3 +289,39 @@ export function buildPaper(pack: StudyPack, title: string, opts: PaperOptions = 
 }
 
 export const paperWords = (p: Paper) => p.sections.reduce((n, s) => n + s.questions.reduce((m, q) => m + wordCount(q.text), 0), 0);
+
+// ─── Marking keys ────────────────────────────────────────────
+
+export interface KeyAnalysis {
+  answers: Record<string, string>;
+  matched: number;
+  /** "About 1 mark per point" when the key shows it */
+  markPerPoint: number | null;
+  avgPoints: number | null;
+  style: string;
+}
+
+/** Read a marking key / answer scheme and line its answers up with the paper's question numbers. */
+export function analyzeKey(text: string, paper?: PaperAnalysis | null): KeyAnalysis {
+  const lines = splitNumbered(text);
+  const answers: Record<string, string> = {};
+  let cur: string | null = null;
+  for (const line of lines) {
+    const q = line.match(/^(?:q(?:uestion)?\.?\s*)?(\d{1,2})\s*[.):]\s*(.*)$/i);
+    if (q) {
+      cur = String(Number(q[1]));
+      answers[cur] = q[2] || '';
+      continue;
+    }
+    if (cur && answers[cur].length < 3000) answers[cur] += `${answers[cur] ? '\n' : ''}${line}`;
+  }
+  const all = Object.values(answers);
+  const points = all.map((a) => a.split(/\n|;|•|(?:^|\s)-\s/).filter((x) => x.trim().length > 2).length);
+  const perPoint = text.match(/(\d|½|one|half)\s*marks?\s*(?:each|per|for each)/i) || text.match(/\((½|1|2)\s*marks?\)/i);
+  const mark = perPoint ? (/½|half/i.test(perPoint[1]) ? 0.5 : Number(perPoint[1]) || 1) : null;
+  const questionNs = new Set((paper?.questions || []).map((q) => String(Number(q.n))));
+  const matched = Object.keys(answers).filter((n) => questionNs.has(n)).length;
+  const avgPoints = points.length ? Math.round((points.reduce((a, b) => a + b, 0) / points.length) * 10) / 10 : null;
+  const style = mark ? `about ${mark === 0.5 ? '½' : mark} mark for each correct point` : avgPoints && avgPoints >= 3 ? 'marks given point by point' : 'short model answers';
+  return { answers, matched, markPerPoint: mark, avgPoints, style };
+}

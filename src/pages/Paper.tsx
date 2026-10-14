@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ClipboardList, Download, FileUp, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
-import { buildPaper, type Paper as PaperDoc, type PaperAnalysis } from '@shared/engine/paper';
+import { BookOpenCheck, ClipboardList, Download, Eye, EyeOff, FileUp, KeyRound, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
+import { buildPaper, type KeyAnalysis, type Paper as PaperDoc, type PaperAnalysis } from '@shared/engine/paper';
 import type { Level } from '@shared/engine/levels';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
-import { ACCEPT, extractFile } from '../lib/extract';
+import { ACCEPT, extractWithOcr } from '../lib/extract';
 import { usePack, useStudyTimer } from '../lib/usePack';
 
 interface PastPaper {
   id: number;
   name: string;
   analysis: PaperAnalysis | null;
+  key: KeyAnalysis | null;
   createdAt: number;
 }
 
@@ -34,8 +35,12 @@ export default function Paper() {
       .then((r) => setPapers(r.papers))
       .catch(() => {});
   }, [id]);
+  useEffect(() => {
+    if (data && location.hash === '#past-papers') document.getElementById('past-papers')?.scrollIntoView({ block: 'start' });
+  }, [data]);
 
   const style = papers.find((p) => p.id === styleId)?.analysis || null;
+  const keyStyle = papers.find((p) => p.id === styleId)?.key?.style || null;
   const paper = useMemo(() => (data ? buildPaper(data.pack.data, data.pack.title, { level, chunks: selected, style, seed: `${seed}` }) : null), [data, level, selected, style, seed]);
 
   if (error) return <ErrorState message={error} />;
@@ -44,7 +49,7 @@ export default function Paper() {
   const school = (user?.university || 'Charis Study').toUpperCase();
 
   function downloadWord() {
-    const html = `<html><head><meta charset="utf-8"><title>${esc(paper!.title)}</title></head><body style="font-family:Calibri,Arial,sans-serif">${paperHtml(paper!, school, guide)}</body></html>`;
+    const html = `<html><head><meta charset="utf-8"><title>${esc(paper!.title)}</title></head><body style="font-family:Calibri,Arial,sans-serif">${paperHtml(paper!, school, guide, keyStyle)}</body></html>`;
     const blob = new Blob(['﻿', html], { type: 'application/msword' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -58,11 +63,17 @@ export default function Paper() {
       <div className="no-print">
         <Crumbs items={[{ to: '/home', label: 'Home' }, { to: `/pack/${id}`, label: data.pack.title }, { label: 'Exam paper' }]} />
         <h1 className="row">
-          <ClipboardList size={28} color="var(--biro)" /> Mock exam paper
+          <ClipboardList size={28} color="var(--biro)" /> Exam papers
         </h1>
         <p className="muted" style={{ maxWidth: 680 }}>
-          A full paper from your notes: objective questions, short answers and essay questions with marks, plus a marking guide. Sit it under exam conditions, then mark yourself.
+          Upload your past papers (and their marking keys) so we learn how your examiners set questions. Then practise the real papers, or make new mock papers in the same style.
         </p>
+
+        <PastPapers packId={id} papers={papers} onChange={setPapers} onUse={(pid) => setStyleId(pid)} chunkTitle={(i) => chunks[i]?.title || ''} toast={toast} />
+
+        <div className="section-head" style={{ marginTop: 30 }}>
+          <h2>Make a mock paper</h2>
+        </div>
 
         <div className="sheet stack">
           <div className="grid cols-2" style={{ gap: 14, alignItems: 'start' }}>
@@ -128,10 +139,9 @@ export default function Paper() {
           </p>
         </div>
 
-        <PastPapers packId={id} papers={papers} onChange={setPapers} onUse={(pid) => setStyleId(pid)} chunkTitle={(i) => chunks[i]?.title || ''} toast={toast} />
       </div>
 
-      <article className="paper-doc" dangerouslySetInnerHTML={{ __html: paperHtml(paper, school, guide) }} />
+      <article className="paper-doc" dangerouslySetInnerHTML={{ __html: paperHtml(paper, school, guide, keyStyle) }} />
     </div>
   );
 }
@@ -139,7 +149,7 @@ export default function Paper() {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** The paper as plain HTML: shown on the page, printed to PDF, and saved as a Word file. */
-function paperHtml(p: PaperDoc, school: string, withGuide: boolean): string {
+function paperHtml(p: PaperDoc, school: string, withGuide: boolean, keyStyle?: string | null): string {
   const head = `<div style="text-align:center"><div style="font-weight:700;letter-spacing:.04em">${esc(school)}</div><div style="font-weight:700;margin-top:4px">${esc(p.title.toUpperCase())}</div><div>MOCK EXAMINATION</div><div style="margin-top:6px">Time: ${esc(p.duration)} &nbsp;·&nbsp; Total: ${p.totalMarks} marks</div></div>`;
   const ins = `<p style="margin-top:14px"><strong>INSTRUCTIONS</strong></p><ol>${p.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol>`;
   const secs = p.sections
@@ -154,7 +164,7 @@ function paperHtml(p: PaperDoc, school: string, withGuide: boolean): string {
     })
     .join('');
   const guide = withGuide
-    ? `<div style="page-break-before:always"></div><h2 style="text-align:center;margin-top:24px">MARKING GUIDE</h2>${p.sections
+    ? `<div style="page-break-before:always"></div><h2 style="text-align:center;margin-top:24px">MARKING GUIDE</h2>${keyStyle ? `<p style="text-align:center"><em>Mark it like your past paper’s key: ${esc(keyStyle)}.</em></p>` : ''}${p.sections
         .map(
           (s) =>
             `<h3>Section ${s.name}</h3>${s.questions
@@ -168,88 +178,183 @@ function paperHtml(p: PaperDoc, school: string, withGuide: boolean): string {
 
 function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { packId: number; papers: PastPaper[]; onChange: (p: PastPaper[]) => void; onUse: (id: number) => void; chunkTitle: (i: number) => string; toast: (m: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [paperFile, setPaperFile] = useState<File | null>(null);
+  const [keyFile, setKeyFile] = useState<File | null>(null);
   const [paste, setPaste] = useState('');
+  const [pasteKey, setPasteKey] = useState('');
   const [name, setName] = useState('');
-  const input = useRef<HTMLInputElement>(null);
+  const [practise, setPractise] = useState<number | null>(null);
+  const paperInput = useRef<HTMLInputElement>(null);
+  const keyInput = useRef<HTMLInputElement>(null);
 
-  async function upload(text: string, paperName: string) {
-    setBusy('Reading how the questions are set…');
+  async function readText(f: File, label: string) {
+    const r = await extractWithOcr(f, (m) => setBusy(`${label}: ${m}`));
+    return r.blocks.map((b) => b.text).join('\n');
+  }
+
+  async function add() {
+    if (!paperFile && !paste.trim()) return toast('Choose the past paper file, or paste its questions.');
     try {
-      const r = await api<{ paper: PastPaper }>(`/packs/${packId}/past-papers`, { body: { name: paperName, text } });
+      const text = paperFile ? await readText(paperFile, 'Past paper') : paste;
+      const keyText = keyFile ? await readText(keyFile, 'Marking key') : pasteKey.trim() || undefined;
+      setBusy('Working out how the questions are set…');
+      const r = await api<{ paper: PastPaper }>(`/packs/${packId}/past-papers`, { body: { name: name.trim() || paperFile?.name.replace(/\.[^.]+$/, '') || 'Past paper', text, keyText } });
       onChange([r.paper, ...papers]);
       onUse(r.paper.id);
+      setPaperFile(null);
+      setKeyFile(null);
       setPaste('');
+      setPasteKey('');
       setName('');
-      toast('Past paper added. Your mock paper now follows its style.');
+      toast(r.paper.key ? 'Past paper and marking key added.' : 'Past paper added. You can add its marking key any time.');
     } catch (e: any) {
       toast(e.message);
     } finally {
       setBusy(null);
     }
   }
-  async function fromFile(f: File | undefined) {
+
+  async function addKey(p: PastPaper, f: File | undefined) {
     if (!f) return;
     try {
-      setBusy('Opening the paper…');
-      const r = await extractFile(f, setBusy);
-      await upload(r.blocks.map((b) => b.text).join('\n'), f.name.replace(/\.[^.]+$/, ''));
+      const text = await readText(f, 'Marking key');
+      setBusy('Reading the marking key…');
+      const r = await api<{ paper: PastPaper }>(`/packs/${packId}/past-papers/${p.id}/key`, { body: { text } });
+      onChange(papers.map((x) => (x.id === p.id ? r.paper : x)));
+      toast(`Marking key added: answers found for ${Object.keys(r.paper.key?.answers || {}).length} questions.`);
     } catch (e: any) {
       toast(e.message);
+    } finally {
       setBusy(null);
     }
   }
+
   async function remove(p: PastPaper) {
+    if (!window.confirm(`Remove “${p.name}”?`)) return;
     await api(`/packs/${packId}/past-papers/${p.id}`, { method: 'DELETE' });
     onChange(papers.filter((x) => x.id !== p.id));
   }
 
   return (
-    <div className="section">
-      <div className="section-head">
-        <h2>Past papers</h2>
-      </div>
-      <div className="sheet stack">
+    <div>
+      <div className="sheet stack ai-card" id="past-papers">
+        <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="row">
+          <FileUp size={20} color="var(--biro)" /> Upload a past paper
+        </h2>
         <p className="small muted" style={{ margin: 0 }}>
-          Upload a past paper for this course. We work out how your examiners set questions — sections, marks, the command words they like (“discuss”, “distinguish”…) and which of your topics came up — and set your mock papers the same way.
+          PDF, Word, a scanned PDF or photos all work — scans are read on your device. Add the marking key too if you have it: we use it to show model answers and to mark the way your lecturers do.
         </p>
-        <div className="row">
-          <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => fromFile(e.target.files?.[0])} />
-          <button className="btn" onClick={() => input.current?.click()} disabled={!!busy}>
-            <FileUp size={16} /> Upload a past paper (PDF, Word, text)
-          </button>
-          {busy && <span className="small muted">{busy}</span>}
+        <div className="grid cols-2" style={{ gap: 12 }}>
+          <div className="upload-slot">
+            <div className="label">1. The past paper</div>
+            <input ref={paperInput} type="file" accept={ACCEPT} hidden onChange={(e) => setPaperFile(e.target.files?.[0] || null)} />
+            <button className="btn" onClick={() => paperInput.current?.click()} disabled={!!busy}>
+              <FileUp size={16} /> {paperFile ? 'Change file' : 'Choose the paper'}
+            </button>
+            {paperFile && <div className="small">{paperFile.name}</div>}
+          </div>
+          <div className="upload-slot">
+            <div className="label">2. Its marking key (optional)</div>
+            <input ref={keyInput} type="file" accept={ACCEPT} hidden onChange={(e) => setKeyFile(e.target.files?.[0] || null)} />
+            <button className="btn" onClick={() => keyInput.current?.click()} disabled={!!busy}>
+              <KeyRound size={16} /> {keyFile ? 'Change file' : 'Choose the key'}
+            </button>
+            {keyFile && <div className="small">{keyFile.name}</div>}
+          </div>
         </div>
         <details>
           <summary className="small" style={{ cursor: 'pointer' }}>
-            Or paste the questions
+            No file? Paste the questions (and answers) instead
           </summary>
           <div className="stack" style={{ marginTop: 8 }}>
-            <input className="input" placeholder="Name, e.g. BIO 1101 May 2025" value={name} onChange={(e) => setName(e.target.value)} />
-            <textarea className="textarea" style={{ minHeight: 140 }} placeholder={'SECTION A\n1. Define osmosis. (2 marks)\n2. …'} value={paste} onChange={(e) => setPaste(e.target.value)} />
-            <div>
-              <button className="btn primary" disabled={!paste.trim() || !!busy} onClick={() => upload(paste, name.trim() || 'Pasted past paper')}>
-                <Wand2 size={16} /> Analyse this paper
-              </button>
-            </div>
+            <textarea className="textarea" style={{ minHeight: 130 }} placeholder={'SECTION A\n1. Define osmosis. (2 marks)\n2. …'} value={paste} onChange={(e) => setPaste(e.target.value)} aria-label="Past paper questions" />
+            <textarea className="textarea" style={{ minHeight: 90 }} placeholder={'Marking key (optional)\n1. Movement of water molecules from… (1 mark each point)\n2. …'} value={pasteKey} onChange={(e) => setPasteKey(e.target.value)} aria-label="Marking key" />
           </div>
         </details>
+        <div className="row">
+          <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Name, e.g. BIO 1101 May 2025" value={name} onChange={(e) => setName(e.target.value)} aria-label="Past paper name" />
+          <button className="btn primary" onClick={add} disabled={!!busy || (!paperFile && !paste.trim())}>
+            <Wand2 size={16} /> Read this paper
+          </button>
+        </div>
+        {busy && (
+          <div className="small row" style={{ gap: 8 }}>
+            <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> {busy}
+          </div>
+        )}
       </div>
+
       {papers.map((p) => (
         <div key={p.id} className="sheet" style={{ marginTop: 12 }}>
           <div className="row between">
-            <strong>{p.name}</strong>
+            <div>
+              <strong>{p.name}</strong>
+              <div className="small muted">{p.key ? `With marking key: answers for ${Object.keys(p.key.answers).length} questions, ${p.key.style}` : 'No marking key yet'}</div>
+            </div>
             <div className="row" style={{ gap: 6 }}>
+              <button className="btn small" onClick={() => setPractise(practise === p.id ? null : p.id)}>
+                <BookOpenCheck size={15} /> {practise === p.id ? 'Close' : 'Practise this paper'}
+              </button>
               <button className="btn small primary" onClick={() => onUse(p.id)}>
                 <Wand2 size={15} /> Make a paper like this
               </button>
+              <label className="btn small" title="Add or replace the marking key">
+                <KeyRound size={15} /> {p.key ? 'Replace key' : 'Add key'}
+                <input type="file" accept={ACCEPT} hidden onChange={(e) => addKey(p, e.target.files?.[0])} />
+              </label>
               <button className="btn small ghost icon" aria-label="Remove this past paper" onClick={() => remove(p)}>
                 <Trash2 size={15} />
               </button>
             </div>
           </div>
-          {p.analysis && <Analysis a={p.analysis} chunkTitle={chunkTitle} />}
+          {practise === p.id && p.analysis ? <Practise a={p.analysis} k={p.key} /> : p.analysis && <Analysis a={p.analysis} chunkTitle={chunkTitle} />}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Work through the real past paper; the marking key's answer is one tap away. */
+function Practise({ a, k }: { a: PaperAnalysis; k: KeyAnalysis | null }) {
+  const [shown, setShown] = useState<Record<string, boolean>>({});
+  const qs = a.questions || [];
+  if (!qs.length) return <p className="small muted">We couldn’t list the questions from this paper.</p>;
+  let lastSection: string | null = null;
+  return (
+    <div className="stack" style={{ marginTop: 12 }}>
+      <p className="hint" style={{ margin: 0 }}>
+        Answer each question on paper or in your head first, then check {k ? 'the marking key' : 'your notes'}.
+      </p>
+      {qs.map((q, i) => {
+        const header = q.section && q.section !== lastSection ? <div className="label">Section {q.section}</div> : null;
+        lastSection = q.section;
+        const ans = k?.answers[String(Number(q.n))];
+        return (
+          <div key={i}>
+            {header}
+            <div className="point-check" style={{ display: 'block' }}>
+              <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+                <div>
+                  <strong>{q.n}.</strong> {q.text}
+                  {q.options && (
+                    <ol type="A" className="small" style={{ margin: '4px 0 0' }}>
+                      {q.options.map((o, j) => (
+                        <li key={j}>{o}</li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+                {ans && (
+                  <button className="btn ghost small" onClick={() => setShown((s) => ({ ...s, [i]: !s[i] }))} aria-expanded={!!shown[i]}>
+                    {shown[i] ? <EyeOff size={15} /> : <Eye size={15} />} {shown[i] ? 'Hide' : 'Answer'}
+                  </button>
+                )}
+              </div>
+              {ans && shown[i] && <div className="small key-answer">{ans}</div>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
