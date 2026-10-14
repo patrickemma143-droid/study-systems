@@ -108,7 +108,8 @@ export function analyzePaper(text: string, pack?: StudyPack): PaperAnalysis {
       continue;
     }
     const q = line.match(/^(?:q(?:uestion)?\.?\s*)?(\d{1,2})\s*[.):]\s*(.+)$/i);
-    const opt = /^(?:\(?[a-dA-D][.)]|[a-dA-D]\s*[-–])\s+\S/.test(line);
+    // "(b) Explain … (8 marks)" is a sub-part of a structured question, not a multiple-choice option
+    const opt = /^(?:\(?[a-dA-D][.)]|[a-dA-D]\s*[-–])\s+\S/.test(line) && marksIn(line) == null;
     if (q && !(cur && opt)) {
       flush();
       cur = { n: q[1], text: q[2], marks: marksIn(q[2]), command: null, section, objective: false };
@@ -201,6 +202,8 @@ export function buildPaper(pack: StudyPack, title: string, opts: PaperOptions = 
   const inScope = (c: number) => !opts.chunks?.length || opts.chunks.includes(c);
   const chunks = pack.chunks.filter((c) => inScope(c.index)).sort((a, b) => b.importance - a.importance);
   const style = opts.style && opts.style.questionCount >= 3 ? opts.style : null;
+  // a past paper we could read question by question: copy its layout exactly
+  if (style?.questions && style.questions.filter((q) => !q.objective).length >= 2) return buildPaperLike(pack, title, opts, style);
 
   // Command words: from the past paper if we have one
   const phrase = (w: string) =>
@@ -286,6 +289,183 @@ export function buildPaper(pack: StudyPack, title: string, opts: PaperOptions = 
     sections,
     totalMarks,
   };
+}
+
+// ─── Same format as the past paper ───────────────────────────
+
+/** "(a) Define X. (2 marks) (b) Explain Y. (4 marks)" → [{ cmd: 'define', marks: 2 }, { cmd: 'explain', marks: 4 }] */
+export function subParts(text: string): { cmd: string | null; marks: number | null }[] {
+  const pieces = text.split(/\s*\((?:[a-h]|i{1,3}|iv|v|vi{0,3})\)\s+/i).slice(1);
+  return pieces.length >= 2 ? pieces.map((x) => ({ cmd: commandIn(x), marks: marksIn(x) })) : [];
+}
+
+type GenQ = { text: string; answer: string; guide: string[] };
+
+/**
+ * Build a paper that looks like the past paper: the same sections in the same order, the same
+ * number of questions in each, the same marks, the same sub-parts and the same command word in
+ * each position — only the content comes from the student's notes.
+ */
+function buildPaperLike(pack: StudyPack, title: string, opts: PaperOptions, style: PaperAnalysis): Paper {
+  const rand = seededRandom(`${opts.seed || 'paper'}:like`);
+  const level = opts.level || 'medium';
+  const inScope = (c: number) => !opts.chunks?.length || opts.chunks.includes(c);
+  const chunks = shuffle(pack.chunks.filter((c) => inScope(c.index)), rand).sort((a, b) => b.importance - a.importance);
+  const defs = shuffle(pack.glossary.filter((g) => inScope(g.chunk)), rand);
+  const lists = shuffle(pack.lists.filter((l) => inScope(l.chunk) && l.items.length >= 2), rand);
+  const used = new Set<string>();
+  const once = <T,>(xs: T[], key: (x: T) => string) => {
+    const x = xs.find((y) => !used.has(key(y)));
+    if (x) used.add(key(x));
+    return x;
+  };
+  const bare = (t: string) => t.replace(/\s*\(part \d+\)$/, '').replace(/\s*&\s.*$/, '').replace(/^(?:an?\s+)?(?:introduction|overview)\s+(?:to|of)\s+/i, '').replace(/^(an?|the)\s+/i, '');
+  const lc = (t: string) => (/\b[A-Z]{2,}|\b[A-Z][a-z]+[A-Z]/.test(t) ? t : t.toLowerCase());
+
+  /** One question (or sub-part) in the shape of the past one: its command word and its marks. */
+  const make = (cmd: string | null, marks: number, chunkHint?: number): GenQ => {
+    const c = (chunkHint != null ? pack.chunks[chunkHint] : null) || chunks[0];
+    const local = <T extends { chunk: number }>(xs: T[]) => [...xs.filter((x) => x.chunk === c?.index), ...xs];
+    const w = (cmd || '').toLowerCase();
+    if (/define|what is/.test(w) || (!w && marks <= 2)) {
+      const d = once(local(defs), (x) => `d:${x.term}`);
+      if (d) return { text: `Define the term “${d.term}”.`, answer: ensurePeriod(d.definition), guide: [ensurePeriod(d.definition)] };
+    }
+    if (/distinguish|differentiate|compare|contrast/.test(w)) {
+      // two terms from the same lesson, so the comparison makes sense
+      const pair = local(defs).filter((d) => !used.has(`d:${d.term}`));
+      const a = pair.find((d) => pair.some((e) => e !== d && e.chunk === d.chunk));
+      const b = a && pair.find((d) => d !== a && d.chunk === a.chunk);
+      if (a && b) {
+        used.add(`d:${a.term}`);
+        used.add(`d:${b.term}`);
+        const g = [`${capitalize(a.term)}: ${ensurePeriod(a.definition)}`, `${capitalize(b.term)}: ${ensurePeriod(b.definition)}`];
+        return { text: `${w === 'compare' || w === 'contrast' ? 'Compare and contrast' : `${capitalize(w || 'distinguish')} between`} ${a.term} and ${b.term}.`, answer: g.join(' '), guide: g };
+      }
+    }
+    if (/list|state|name|identify|outline|give/.test(w) || (!w && marks <= 6)) {
+      const l = once(local(lists), (x) => `l:${x.category}`);
+      if (l) {
+        const k = Math.max(2, Math.min(l.items.length, marks >= 2 && marks <= l.items.length ? marks : l.items.length));
+        const verb = capitalize(w && w !== 'list' ? w : 'list');
+        const text = k === l.items.length ? `${verb} the ${l.category}.` : `${verb} any ${numberWord(k)} ${l.category}.`;
+        return { text, answer: l.items.map((i) => i.label).join('; '), guide: l.items.map((i) => (i.detail ? `${i.label}: ${i.detail}` : i.label)) };
+      }
+    }
+    // explain / describe / discuss / evaluate…: a lesson-sized idea
+    const ch = (chunkHint != null ? c : once(chunks, (x) => `c:${x.index}`)) || c;
+    // never ask about the same thing twice: lists, then key terms, then the lesson itself
+    const l = pack.lists.find((x) => x.chunk === ch.index && x.items.length >= 3 && !used.has(`s:the ${x.category}`));
+    const options = [
+      ...(l && marks >= 4 ? [`the ${l.category}`] : []),
+      ...ch.keyTerms.slice(0, 4).map((t) => (marks >= 6 ? `the importance of ${lc(t)}` : lc(t))),
+      lc(bare(ch.title)),
+      ...pack.chunks.filter((x) => inScope(x.index)).map((x) => lc(bare(x.title))),
+    ];
+    const subject = options.find((o) => !used.has(`s:${o}`)) || lc(bare(ch.title));
+    used.add(`s:${subject}`);
+    const verb = (/^(?:explain|describe|discuss|evaluate|assess|analyse|examine|illustrate|outline|critically|with examples|with the aid of|account for|justify)$/.test(w) ? phraseCommand(w) : '') || (marks >= 10 ? (level === 'hard' ? 'Critically discuss' : 'Discuss') : 'Explain');
+    const tail = /with examples|with the aid/.test(w) ? '' : marks >= 10 && level !== 'easy' ? ', giving relevant examples' : '';
+    return { text: `${verb} ${subject}${tail}.`, answer: ch.nutshell, guide: [...ch.keyPoints.slice(0, Math.max(3, Math.min(8, Math.ceil(marks / 2)))), ...(l && subject === `the ${l.category}` ? [`${capitalize(l.category)}: ${l.items.map((x) => x.label).join(', ')}`] : [])] };
+  };
+
+  const order = style.sections.length ? style.sections.map((s) => s.name) : [null];
+  const sections: Paper['sections'] = [];
+  let mcqPool = shuffle(buildLevelQuiz(pack, level, opts.chunks, opts.seed).filter((q) => q.type === 'mcq'), rand);
+  let chunkTurn = 0;
+  for (const name of order) {
+    const sec = style.sections.find((s) => s.name === name);
+    const past = (style.questions || []).filter((q) => q.section === name);
+    if (!past.length) continue;
+    const objective = sec ? sec.objective : past.filter((q) => q.objective).length / past.length > 0.5;
+    const questions: Paper['sections'][number]['questions'] = [];
+    if (objective) {
+      const take = mcqPool.slice(0, Math.min(40, past.length));
+      mcqPool = mcqPool.slice(take.length);
+      const m = past.find((q) => q.marks)?.marks || 1;
+      for (const q of take) if (q.type === 'mcq') questions.push({ n: 0, text: q.prompt, marks: m, options: q.options, answer: `${'ABCD'[q.answer]}. ${q.options[q.answer]}`, guide: [q.explanation] });
+    } else {
+      for (const pq of past.slice(0, 15)) {
+        const marks = pq.marks || style.marks.typical || 10;
+        const parts = subParts(pq.text);
+        const lead = pq.text.split(/\s*\((?:a|i)\)\s+/i)[0];
+        if (parts.length >= 2 && parts.filter((x) => x.cmd).length === 0 && /^(?:define|explain the (?:following )?terms|what is meant by)/i.test(lead.trim())) {
+          // "Define the following terms: (a) osmosis (b) diffusion"
+          const ds = defs.filter((d) => !used.has(`d:${d.term}`)).slice(0, parts.length);
+          ds.forEach((d) => used.add(`d:${d.term}`));
+          if (ds.length >= 2) {
+            questions.push({
+              n: 0,
+              text: `${lead.trim().replace(/[:\s]*$/, ':')} ${ds.map((d, i) => `(${'abcdefgh'[i]}) ${d.term}`).join(' ')}`,
+              marks,
+              answer: ds.map((d, i) => `(${'abcdefgh'[i]}) ${ensurePeriod(d.definition)}`).join(' '),
+              guide: ds.map((d) => `${capitalize(d.term)}: ${ensurePeriod(d.definition)}`),
+            });
+            continue;
+          }
+        }
+        if (parts.length >= 2 && parts.filter((x) => x.cmd || x.marks).length >= 2) {
+          // a structured question: one lesson, the same sub-parts, the same marks per part
+          const ch = chunks[chunkTurn++ % Math.max(1, chunks.length)];
+          const known = parts.reduce((n, x) => n + (x.marks || 0), 0);
+          const each = parts.map((x) => x.marks || Math.max(1, Math.round((marks - known) / Math.max(1, parts.filter((y) => !y.marks).length))));
+          const gen = parts.map((x, i) => ({ ...make(x.cmd, each[i], ch?.index), marks: each[i] }));
+          questions.push({
+            n: 0,
+            text: gen.map((g, i) => `(${'abcdefgh'[i]}) ${g.text} (${g.marks} mark${g.marks === 1 ? '' : 's'})`).join('  '),
+            marks: gen.reduce((n, g) => n + g.marks, 0),
+            answer: gen.map((g, i) => `(${'abcdefgh'[i]}) ${g.answer}`).join(' '),
+            guide: gen.flatMap((g, i) => g.guide.map((x, j) => (j === 0 ? `(${'abcdefgh'[i]}) ${x}` : x))),
+          });
+        } else {
+          const ch = marks >= 8 ? chunks[chunkTurn++ % Math.max(1, chunks.length)] : undefined;
+          const g = make(pq.command, marks, ch?.index);
+          questions.push({ n: 0, ...g, marks });
+        }
+      }
+    }
+    if (!questions.length) continue;
+    const marksEach = new Set(questions.map((q) => q.marks));
+    // "Answer ALL questions in Section A and any THREE questions in Section B" → each section's own rule
+    const global = style.instructions.join(' ');
+    const rule = name ? global.match(new RegExp(`\\b(all|any\\s+(?:\\d|one|two|three|four|five|six))\\s+(?:questions?\\s+)?(?:from|in)\\s+section\\s+${name}\\b`, 'i')) : null;
+    const maxMarks = Math.max(...questions.map((q) => q.marks));
+    sections.push({
+      name: name || String.fromCharCode(65 + sections.length),
+      title: objective ? 'Objective questions' : marksEach.size === 1 && maxMarks >= 10 ? 'Essay questions' : maxMarks < 8 ? 'Short answer questions' : 'Structured questions',
+      instruction: sec?.instruction || (rule ? `Answer ${/^all/i.test(rule[1]) ? 'ALL' : rule[1].replace(/^any\s+/i, 'any ').replace(/any (\w+)/i, (_m, x) => `any ${String(x).toUpperCase()}`)} questions in this section.` : objective ? 'Answer ALL questions in this section.' : 'Answer ALL questions.'),
+      questions,
+    });
+  }
+  let n = 1;
+  for (const s of sections) for (const q of s.questions) q.n = n++;
+
+  // marks: count only the questions the instruction asks for ("answer any three")
+  const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  const sectionMarks = (s: Paper['sections'][number]) => {
+    const any = s.instruction.match(/any\s+(\d|one|two|three|four|five|six)\b/i);
+    const k = any ? Number(any[1]) || WORDS[any[1].toLowerCase()] : 0;
+    const ms = s.questions.map((q) => q.marks).sort((a, b) => b - a);
+    return k && k < ms.length ? ms.slice(0, k).reduce((a, b) => a + b, 0) : ms.reduce((a, b) => a + b, 0);
+  };
+  const totalMarks = style.totalMarks && Math.abs(style.totalMarks - sections.reduce((t, s) => t + sectionMarks(s), 0)) <= 10 ? style.totalMarks : sections.reduce((t, s) => t + sectionMarks(s), 0);
+  return {
+    title,
+    duration: style.duration || (totalMarks > 80 ? '3 hours' : totalMarks > 50 ? '2 hours' : '1 hour 30 minutes'),
+    instructions: style.instructions.length ? style.instructions.slice(0, 6) : ['Read all the questions carefully before you start.'],
+    sections,
+    totalMarks,
+  };
+}
+
+function numberWord(n: number): string {
+  return ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] || String(n);
+}
+
+function phraseCommand(w: string): string {
+  if (!w) return '';
+  const map: Record<string, string> = { 'with examples': 'With examples, explain', 'with the aid of': 'With the aid of examples, explain', critically: 'Critically examine', 'account for': 'Account for', 'what is': 'Explain', why: 'Explain why', how: 'Explain how', compare: 'Compare and contrast', calculate: 'Explain', derive: 'Explain', prove: 'Explain' };
+  return map[w] || capitalize(w);
 }
 
 export const paperWords = (p: Paper) => p.sections.reduce((n, s) => n + s.questions.reduce((m, q) => m + wordCount(q.text), 0), 0);

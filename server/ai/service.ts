@@ -27,7 +27,7 @@ export async function userPlan(userId: number): Promise<{ plan: 'free' | 'pro'; 
 /** Requests that actually used the AI today (shared/cached answers don't count). */
 export async function usedToday(userId: number): Promise<Record<AiKind, number>> {
   const rows = await db('ai_events').where({ user_id: userId, day: aiDay(), cached: false }).groupBy('kind').select('kind').count({ n: '*' });
-  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0 };
+  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0, build: 0, paper: 0 };
   for (const r of rows as any[]) if (r.kind in out) out[r.kind as AiKind] = Number(r.n);
   return out;
 }
@@ -48,7 +48,7 @@ async function assertAllowed(userId: number, kind: AiKind) {
 }
 
 function label(kind: AiKind) {
-  return kind === 'simplify' ? 'simple explanations' : kind === 'tutor' ? 'tutor questions' : 'AI marks';
+  return ({ simplify: 'simple explanations', tutor: 'tutor questions', feedback: 'AI marks', build: 'smart lessons', paper: 'AI exam papers' } as Record<AiKind, string>)[kind];
 }
 
 async function record(userId: number, kind: AiKind, result: AiResult | null, cached: boolean) {

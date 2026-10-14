@@ -80,7 +80,7 @@ function webPort(): number {
 
 // ─── AI (optional) ───────────────────────────────────────────
 // No key → the app stays fully API-free. Set GEMINI_API_KEY or ANTHROPIC_API_KEY (or AI_PROVIDER + AI_API_KEY).
-export type AiKind = 'simplify' | 'tutor' | 'feedback';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper';
 type Limits = Record<AiKind, number>;
 
 function parseLimits(text: string | undefined, fallback: Limits): Limits {
@@ -108,8 +108,8 @@ export const ai = {
   priceInput: env.AI_PRICE_INPUT ? Number(env.AI_PRICE_INPUT) : null,
   priceOutput: env.AI_PRICE_OUTPUT ? Number(env.AI_PRICE_OUTPUT) : null,
   limits: {
-    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3 }),
-    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30 }),
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20 }),
   },
 };
 

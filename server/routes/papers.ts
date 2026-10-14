@@ -17,6 +17,18 @@ async function ownPack(uid: number, id: number) {
 
 const out = (r: any) => ({ id: r.id, name: r.name, analysis: parseJSON<PaperAnalysis | null>(r.analysis, null), key: parseJSON<KeyAnalysis | null>(r.key_analysis, null), createdAt: Number(r.created_at) });
 
+/** Every past paper the student has uploaded, in any course pack, so a format learnt once can be used anywhere. */
+papersRouter.get('/all/past-papers', async (_req, res) => {
+  const uid = userId(res);
+  const rows = await db('past_papers as pp')
+    .join('packs as p', 'p.id', 'pp.pack_id')
+    .where('pp.user_id', uid)
+    .orderBy('pp.id', 'desc')
+    .limit(100)
+    .select('pp.id', 'pp.name', 'pp.analysis', 'pp.key_analysis', 'pp.created_at', 'pp.pack_id', 'p.title as pack_title');
+  res.json({ papers: rows.map((r: any) => ({ ...out(r), packId: r.pack_id, packTitle: r.pack_title })) });
+});
+
 papersRouter.get('/:id/past-papers', async (req, res) => {
   const uid = userId(res);
   await ownPack(uid, Number(req.params.id));

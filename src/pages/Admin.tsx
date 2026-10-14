@@ -5,7 +5,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 
-type Kind = 'simplify' | 'tutor' | 'feedback';
+type Kind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper';
 interface KindRow {
   kind: Kind;
   requests: number;
@@ -44,7 +44,7 @@ interface AdminUser {
   aiCost30d: number;
 }
 
-const KIND_LABEL: Record<Kind, string> = { simplify: 'Explain simply', tutor: 'Tutor chat', feedback: 'AI marking' };
+const KIND_LABEL: Record<Kind, string> = { simplify: 'Explain simply', tutor: 'Tutor chat', feedback: 'AI marking', build: 'Smart lessons', paper: 'AI papers' };
 const n = (x: number) => x.toLocaleString();
 const usd = (x: number) => (x === 0 ? '$0' : x < 0.01 ? '< $0.01' : `$${x.toFixed(x < 10 ? 2 : 0)}`);
 

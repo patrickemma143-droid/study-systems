@@ -425,6 +425,98 @@ export function AiPackExplainer({ packId, lessons }: { packId: number; lessons: 
   );
 }
 
+// ─── Smart pack: the AI rebuilds every lesson's cards, quiz and objectives ──
+export function SmartPackBuilder({ packId, lessons, smartDone, autoStart, onSaved }: { packId: number; lessons: number[]; smartDone: number[]; autoStart?: boolean; onSaved: () => void }) {
+  const status = useAiStatus();
+  const todo = lessons.filter((i) => !smartDone.includes(i));
+  const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'stopped'>('idle');
+  const [done, setDone] = useState(0);
+  const [total, setTotal] = useState(todo.length);
+  const [error, setError] = useState<string | null>(null);
+  const stop = useRef(false);
+  const started = useRef(false);
+  const todoRef = useRef(todo);
+  todoRef.current = todo;
+  useEffect(
+    () => () => {
+      stop.current = true;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (autoStart && status?.enabled && !started.current && todoRef.current.length && left(status, 'build') > 0) {
+      started.current = true;
+      void run();
+    }
+  }, [autoStart, status?.enabled]);
+
+  if (!status?.enabled || !lessons.length) return null;
+  if (!todo.length && phase === 'idle') return null;
+
+  async function run() {
+    started.current = true;
+    const list = [...todoRef.current];
+    stop.current = false;
+    setTotal(list.length);
+    setDone(0);
+    setPhase('running');
+    setError(null);
+    for (let i = 0; i < list.length; i++) {
+      if (stop.current) {
+        setPhase('stopped');
+        onSaved();
+        return;
+      }
+      try {
+        const r = await api<{ usage: any }>('/ai/smart-lesson', { body: { packId, chunk: list[i] } });
+        updateAiUsage(r.usage);
+        setDone(i + 1);
+      } catch (e: any) {
+        setError(e.message);
+        setPhase('stopped');
+        onSaved();
+        return;
+      }
+    }
+    setPhase('done');
+    onSaved();
+  }
+
+  const pct = total ? Math.round((done / total) * 100) : 100;
+  return (
+    <div className="sheet tight ai-card" style={{ marginBottom: 12, borderLeftColor: 'var(--biro)' }}>
+      <div className="row between">
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <strong className="row" style={{ gap: 6 }}>
+            <Sparkles size={17} color="var(--biro)" /> Smart study pack
+          </strong>
+          <div className="small muted" style={{ marginTop: 2 }}>
+            {phase === 'idle' && `The AI reads each lesson like a lecturer: it finds the topic and learning objectives, and rewrites the flashcards and quiz so every card is a clear exam question. ${todo.length} lesson${todo.length === 1 ? '' : 's'} to do (${left(status, 'build')} smart lessons left today). Cards you have already studied are kept.`}
+            {phase === 'running' && `Reading lesson ${Math.min(done + 1, total)} of ${total} and writing better cards…`}
+            {phase === 'done' && 'Done. Your flashcards, quiz, topics and objectives now come from the AI.'}
+            {phase === 'stopped' && `${done} of ${total} lessons made smart. Carry on any time.`}
+          </div>
+        </div>
+        {phase === 'running' ? (
+          <button className="btn small" onClick={() => (stop.current = true)}>
+            <Square size={14} /> Stop
+          </button>
+        ) : phase !== 'done' ? (
+          <button className="btn small primary" onClick={run} disabled={left(status, 'build') <= 0}>
+            <Sparkles size={15} /> {phase === 'stopped' ? 'Carry on' : 'Make it smart'}
+          </button>
+        ) : null}
+      </div>
+      {(phase === 'running' || done > 0) && (
+        <div className="meter" style={{ marginTop: 10 }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Lessons made smart">
+          <span style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {error && <AiError message={error} />}
+    </div>
+  );
+}
+
 // ─── Plan and today’s AI use (profile) ────────────────────────
 export function AiPlanCard() {
   const s = useAiStatus();
@@ -433,6 +525,8 @@ export function AiPlanCard() {
     { kind: 'simplify', label: 'Simple explanations' },
     { kind: 'tutor', label: 'Tutor questions' },
     { kind: 'feedback', label: 'AI marking' },
+    { kind: 'build', label: 'Smart lessons' },
+    { kind: 'paper', label: 'AI exam papers' },
   ];
   return (
     <div className="sheet stack">

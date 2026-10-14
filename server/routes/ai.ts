@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ai } from '../config';
 import { HttpError, requireAuth, userId } from '../auth';
-import { db, parseJSON } from '../db';
+import { db, now, parseJSON } from '../db';
 import type { StudyPack } from '../../shared/engine/types';
 import { AiError } from '../ai/providers';
 import { feedbackRequest, lessonContext, simplifyRequest, tutorRequest } from '../ai/prompts';
+import { cleanPaper, cleanSmartLesson, mergeSmartLesson, paperRequest, smartLessonRequest } from '../ai/smart';
+import { buildOutline } from '../../shared/engine/outline';
+import type { KeyAnalysis } from '../../shared/engine/paper';
 import { cachedJson, cleanFeedback, cleanSimplify, limitsFor, liveText, peekJson } from '../ai/service';
 
 export const aiRouter = Router();
@@ -119,5 +122,83 @@ aiRouter.post(
     const key = `${body.mode}\n${body.chunks.join(',')}\n${ctxs.map((c) => c.title).join('|')}\n${body.text}`;
     const { data, cached } = await cachedJson(userId(res), 'feedback', key, feedbackRequest(ctxs, points, body.text, body.mode), cleanFeedback);
     res.json({ ...data, cached, usage: await limitsFor(userId(res)) });
+  }),
+);
+
+/**
+ * Rebuild one lesson with the AI: better cards, a better quiz, real learning objectives and its topic.
+ * Cards the student has already reviewed are kept; only untouched auto-made cards are replaced.
+ */
+aiRouter.post(
+  '/smart-lesson',
+  wrap(async (req, res) => {
+    requireAi();
+    const uid = userId(res);
+    const body = z.object({ packId: z.number().int(), chunk: z.number().int().min(0) }).parse(req.body);
+    const pack = await loadPack(uid, body.packId);
+    if (pack.data.smart?.lessons[body.chunk]) {
+      res.json({ already: true, usage: await limitsFor(uid) });
+      return;
+    }
+    const ctx = lessonContext(pack, body.chunk);
+    if (!ctx) throw new HttpError(404, 'Lesson not found.');
+    const outline = pack.data.chunks.map((c) => c.title);
+    const { data, cached } = await cachedJson(uid, 'build', `${ctx.title}\n${ctx.text}`, smartLessonRequest(ctx, outline), cleanSmartLesson);
+
+    // read the pack again: another lesson may have been saved while the AI was working
+    const fresh = await loadPack(uid, body.packId);
+    if (fresh.data.smart?.lessons[body.chunk]) {
+      res.json({ already: true, usage: await limitsFor(uid) });
+      return;
+    }
+    const merged = mergeSmartLesson(fresh.data, body.chunk, data);
+    const t = now();
+    await db.transaction(async (trx) => {
+      await trx('cards')
+        .where({ pack_id: body.packId, user_id: uid, chunk_index: body.chunk, reps: 0 })
+        .whereNull('last_reviewed_at')
+        .whereNot('type', 'custom')
+        .delete();
+      await trx('cards').insert(
+        data.cards.map((c, i) => ({ user_id: uid, pack_id: body.packId, chunk_index: body.chunk, type: c.type, front: c.front, back: c.back, hint: null, due_at: t - data.cards.length + i })),
+      );
+      await trx('packs').where({ id: body.packId, user_id: uid }).update({ data: JSON.stringify(merged), stats: JSON.stringify(merged.stats), updated_at: t });
+    });
+    res.json({ cached, cards: data.cards.length, questions: data.quiz.length, objectives: data.objectives, topic: data.topic, usage: await limitsFor(uid) });
+  }),
+);
+
+/** A complete mock paper written by the AI in the exact format of one of the student's past papers. */
+aiRouter.post(
+  '/paper',
+  wrap(async (req, res) => {
+    requireAi();
+    const uid = userId(res);
+    const body = z
+      .object({
+        packId: z.number().int(),
+        pastPaperId: z.number().int().optional(),
+        chunks: z.array(z.number().int().min(0)).max(80).optional(),
+        level: z.enum(['easy', 'medium', 'hard']).default('medium'),
+        fresh: z.number().int().min(0).max(1000).optional(),
+      })
+      .parse(req.body);
+    const pack = await loadPack(uid, body.packId);
+    const idx = body.chunks?.length ? body.chunks : pack.data.chunks.map((c) => c.index);
+    const lessons = idx.map((i) => lessonContext(pack, i)).filter((c): c is NonNullable<typeof c> => !!c);
+    if (!lessons.length) throw new HttpError(404, 'Pick at least one lesson.');
+    let past: { text: string; key: KeyAnalysis | null } | null = null;
+    if (body.pastPaperId) {
+      // any of the student's past papers, from any course pack
+      const row = await db('past_papers').where({ id: body.pastPaperId, user_id: uid }).select('text', 'key_analysis').first();
+      if (!row) throw new HttpError(404, 'Past paper not found.');
+      past = { text: String(row.text), key: parseJSON<KeyAnalysis | null>(row.key_analysis, null) };
+    }
+    const outline = pack.data.outline ?? buildOutline(pack.data);
+    const objectives = idx.flatMap((i) => outline.objectives[i] || []);
+    const req2 = paperRequest({ courseTitle: pack.title, lessons, pastPaper: past?.text || null, keyStyle: past?.key?.style || null, level: body.level, objectives });
+    const key = `${body.level}\n${body.fresh || 0}\n${past?.text.slice(0, 20000) || ''}\n${lessons.map((l) => `${l.title}\n${l.text}`).join('\n')}`;
+    const { data, cached } = await cachedJson(uid, 'paper', key, req2, cleanPaper);
+    res.json({ paper: data, cached, usage: await limitsFor(uid) });
   }),
 );

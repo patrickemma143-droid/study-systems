@@ -171,8 +171,8 @@ Everything above works with no AI. Add one API key and these appear for logged-i
 | `ANTHROPIC_API_KEY` | | Turns AI on with Claude (used if no Gemini key) |
 | `AI_PROVIDER` | auto | `gemini`, `claude`, or `mock` (fake answers, for testing only) |
 | `AI_MODEL` | `gemini-3.5-flash-lite` / `claude-haiku-5-5` | Model name |
-| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3` | Daily allowance on Free |
-| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30` | Daily allowance on Pro |
+| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2` | Daily allowance on Free (build = smart lessons, paper = AI exam papers) |
+| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20` | Daily allowance on Pro |
 | `ADMIN_EMAILS` | | Comma-separated emails that can open `/admin` (admins always get Pro) |
 | `TZ_OFFSET_HOURS` | `3` | When "today" starts for allowances (3 = Kampala) |
 | `AI_PRICE_INPUT`, `AI_PRICE_OUTPUT` | built-in table | USD per million tokens, for the admin cost estimates |

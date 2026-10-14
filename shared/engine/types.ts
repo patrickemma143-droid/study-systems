@@ -56,7 +56,7 @@ export interface KeyTerm {
   chunks: number[];
 }
 
-export type CardType = 'definition' | 'reverse' | 'cloze' | 'list';
+export type CardType = 'definition' | 'reverse' | 'cloze' | 'list' | 'concept';
 
 export interface CardSeed {
   chunk: number;
@@ -97,6 +97,23 @@ export interface Resource {
   note: string;
 }
 
+export interface OutlineTopic {
+  title: string;
+  /** lesson indexes in reading order */
+  chunks: number[];
+}
+
+export interface CourseOutline {
+  topics: OutlineTopic[];
+  /** objectives per lesson, same order as pack.chunks */
+  objectives: string[][];
+  /** objectives the lecturer wrote in the notes ("By the end of this lecture you should be able to…") */
+  stated: string[];
+  /** a course outline found in the notes themselves */
+  statedTopics: string[];
+  source: 'notes' | 'ai';
+}
+
 export interface StudyPack {
   version: 1;
   title: string;
@@ -111,5 +128,9 @@ export interface StudyPack {
   cards: CardSeed[];
   resources?: Resource[];
   simpleIntro?: string;
+  /** topics and learning objectives; older packs build it on the fly with buildOutline */
+  outline?: CourseOutline;
+  /** lessons rebuilt by the AI (cards, quiz, objectives, topic) */
+  smart?: { lessons: Record<number, { title: string; topic: string; at: number }> };
   stats: { words: number; chunks: number; cards: number; questions: number; readMinutes: number };
 }

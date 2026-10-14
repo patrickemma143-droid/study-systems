@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpenCheck, CalendarDays, Check, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
+import { BookOpenCheck, CalendarDays, Check, Target, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { AiPackExplainer } from '../components/AiPanels';
+import { AiPackExplainer, SmartPackBuilder } from '../components/AiPanels';
 import { ReadinessCard } from '../components/Readiness';
 import { Bar, Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { METHODS, methodById, recommend } from '../methods';
 import { invalidatePack, usePack } from '../lib/usePack';
 import { daysUntil, examLabel, plural } from '../lib/util';
+import { buildOutline } from '@shared/engine/outline';
 
 const PREFS = [
   { id: 'reading', label: 'Reading' },
@@ -27,6 +28,7 @@ export default function PackHome() {
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editExam, setEditExam] = useState<string | null>(null);
 
+  const outline = useMemo(() => (data ? data.pack.data.outline ?? buildOutline(data.pack.data) : null), [data]);
   const done = useMemo(() => (data ? Object.values(data.progress).filter((p) => p.status === 'understood' || p.status === 'mastered').length : 0), [data]);
 
   if (error) return <ErrorState message={error} action={<Link to="/home" className="btn">Back home</Link>} />;
@@ -254,28 +256,73 @@ export default function PackHome() {
             <BookOpenCheck size={16} /> {done ? 'Continue' : 'Start lesson 1'}
           </Link>
         </div>
+        <SmartPackBuilder
+          packId={id}
+          lessons={d.chunks.map((c) => c.index)}
+          smartDone={Object.keys(d.smart?.lessons || {}).map(Number)}
+          autoStart={!!params.get('new')}
+          onSaved={() => {
+            invalidatePack(id);
+            reload();
+          }}
+        />
         <AiPackExplainer packId={id} lessons={d.chunks.map((c) => c.index)} />
+        {outline && (outline.stated.length > 0 || outline.statedTopics.length > 0) && (
+          <div className="sheet outline-card" style={{ marginBottom: 14 }}>
+            <h3 style={{ marginTop: 0 }}>
+              <Target size={18} /> {outline.stated.length ? 'What your lecturer expects you to be able to do' : 'Course outline'}
+            </h3>
+            {outline.stated.length > 0 && (
+              <ul className="objectives">
+                {outline.stated.slice(0, 10).map((o, i) => (
+                  <li key={i}>{o}</li>
+                ))}
+              </ul>
+            )}
+            {outline.stated.length > 0 && outline.statedTopics.length > 0 && <div className="small muted" style={{ margin: '10px 0 4px' }}>Course outline</div>}
+            {outline.statedTopics.length > 0 && (
+              <ol className="small" style={{ margin: 0, paddingLeft: 20 }}>
+                {outline.statedTopics.slice(0, 16).map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
         <div className="sheet" style={{ padding: '4px 20px' }}>
           <div className="list">
-            {d.chunks.map((c) => {
-              const st = progress[c.index]?.status || 'new';
-              const cs = cards.byChunk[c.index];
-              return (
-                <Link key={c.index} to={`learn/${c.index}`} className="list-row">
-                  <span className={`list-num ${st}`}>{st === 'understood' || st === 'mastered' ? <Check size={16} /> : c.index + 1}</span>
-                  <span className="list-body">
-                    <span className="list-title" style={{ display: 'block' }}>
-                      {c.title}
-                    </span>
-                    <span className="list-sub">
-                      {c.readMinutes} min
-                      {cs ? `, ${cs.known}/${cs.total} cards remembered` : ''}
-                      {c.importance >= 0.75 ? ', likely to be examined' : ''}
-                    </span>
-                  </span>
-                </Link>
-              );
-            })}
+            {(outline && outline.topics.length >= 2 && outline.topics.length < d.chunks.length ? outline.topics : [{ title: '', chunks: d.chunks.map((c) => c.index) }]).map((topic, ti) => (
+              <div key={ti}>
+                {topic.title && (
+                  <div className="topic-head">
+                    <span className="small muted">Topic {ti + 1}</span> {topic.title}
+                  </div>
+                )}
+                {topic.chunks.map((ci) => {
+                  const c = d.chunks[ci];
+                  if (!c) return null;
+                  const st = progress[c.index]?.status || 'new';
+                  const cs = cards.byChunk[c.index];
+                  const objs = outline?.objectives[c.index]?.length || 0;
+                  return (
+                    <Link key={c.index} to={`learn/${c.index}`} className="list-row">
+                      <span className={`list-num ${st}`}>{st === 'understood' || st === 'mastered' ? <Check size={16} /> : c.index + 1}</span>
+                      <span className="list-body">
+                        <span className="list-title" style={{ display: 'block' }}>
+                          {c.title}
+                        </span>
+                        <span className="list-sub">
+                          {c.readMinutes} min
+                          {objs ? `, ${plural(objs, 'objective')}` : ''}
+                          {cs ? `, ${cs.known}/${cs.total} cards remembered` : ''}
+                          {c.importance >= 0.75 ? ', likely to be examined' : ''}
+                        </span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </section>

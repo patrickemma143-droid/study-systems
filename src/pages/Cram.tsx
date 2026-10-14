@@ -105,7 +105,7 @@ export default function Cram() {
   const stepScope = useMemo(() => {
     if (!data || !current) return null;
     const keep = current.lessons;
-    const order: Record<string, number> = { definition: 0, list: 1, cloze: 2, reverse: 3 };
+    const order: Record<string, number> = { definition: 0, list: 1, concept: 2, cloze: 3, reverse: 4 };
     const cards = shuffle(
       data.pack.data.cards
         .filter((c) => keep.includes(c.chunk))

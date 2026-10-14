@@ -146,7 +146,77 @@ function categoryFrom(lead: string): string | null {
     .trim();
   if (!c || wordCount(c) > 9 || wordCount(c) < 1) return null;
   if (isPronounStart(words(c)[0] || '')) return null;
-  return c.charAt(0).toLowerCase() + c.slice(1);
+  return /[A-Z]/.test(c.slice(1)) ? c : c.charAt(0).toLowerCase() + c.slice(1);
+}
+
+const GENERIC_HEAD = /^(?:(?:common|main|major|key|basic|general|important|different|other)\s+)*(?:steps|stages|phases|types|kinds|forms|features|characteristics|advantages|disadvantages|benefits|limitations|functions|roles|uses|examples|methods|components|parts|principles|properties|causes|effects|factors|categories|classes|levels|elements|objectives|aims|goals|reasons|importance|sources|applications|assumptions|requirements|processes|structures|organs|stages)$/i;
+
+function lowerFirst(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+/** A heading tidied to use inside a question: "Exploratory Data Analysis (EDA):" → "Exploratory Data Analysis (EDA)". */
+function cleanSubject(h: string): string {
+  const t = h.replace(/^\s*(?:\d+(?:\.\d+)*|[ivx]+|[A-Z])[.)]\s+/, '').replace(/[:.]\s*$/, '').trim();
+  return wordCount(t) >= 1 && wordCount(t) <= 8 ? t : '';
+}
+
+function isPluralPhrase(c: string): boolean {
+  const head = c.replace(/\s*\(.*?\)\s*/g, ' ').trim().split(/\s+of\s+|\s+in\s+|\s+for\s+/i)[0].trim().split(/\s+/).pop() || '';
+  return /(?:[^s]s|ies|ae|ria|ses)$/i.test(head) || /^(?:types|kinds|data|criteria|phenomena|media)$/i.test(head);
+}
+
+/** "common steps" alone means nothing on a card: say steps of what. */
+function withSubject(cat: string, subject: string): string {
+  if (!subject || !GENERIC_HEAD.test(cat.trim())) return cat;
+  if (cat.toLowerCase().includes(subject.toLowerCase())) return cat;
+  const subj = /\b[A-Z]{2,}/.test(subject) ? subject : subject.toLowerCase();
+  return `${cat.replace(/^(?:common|main|major|key|basic|general|important|different|other)\s+/i, '')} of ${subj}`;
+}
+
+/** "Helps to:" under "EDA" → "things Exploratory Data Analysis (EDA) helps to do". */
+function stemCategory(stem: string, subject: string): string | null {
+  const st = stem.replace(/[:\s]+$/, '').trim();
+  if (!subject) return categoryFrom(st);
+  if (/\bto$/i.test(st)) return `things ${subject} ${lowerFirst(st)} do`;
+  const c = categoryFrom(st);
+  if (c && GENERIC_HEAD.test(c)) return `${c} of ${subject}`;
+  if (c && isPluralPhrase(c)) return c;
+  return `points on ${subject}: ${lowerFirst(st)}`;
+}
+
+/**
+ * Notes often put a term on one bullet and what it means on the next:
+ * "Descriptive studies" / "Seeks to describe…" / "Analytic studies" / "Tests a causal…".
+ * Join those into "Descriptive studies: Seeks to describe…".
+ */
+function pairUp(group: string[]): string[] {
+  if (group.length < 4) return group;
+  const isLabel = (x: string) => wordCount(x) <= 5 && !/[.:;]$/.test(x.trim()) && /^[A-Z0-9]/.test(x.trim());
+  const isDetail = (x: string) => wordCount(x) >= 5;
+  for (const off of [0, 1]) {
+    const body = group.slice(off);
+    if (body.length < 4 || body.length % 2) continue;
+    let ok = true;
+    for (let k = 0; k < body.length; k += 2) {
+      if (!isLabel(body[k]) || !isDetail(body[k + 1]) || wordCount(body[k + 1]) <= wordCount(body[k])) ok = false;
+    }
+    if (!ok) continue;
+    const pairs: string[] = [];
+    for (let k = 0; k < body.length; k += 2) pairs.push(`${body[k].trim()}: ${body[k + 1].trim()}`);
+    return [...group.slice(0, off), ...pairs];
+  }
+  return group;
+}
+
+/** Split "Essential first step / Helps to: / Identify errors / …" at the bullet that ends in a colon. */
+function splitGroup(group: string[]): { stem?: string; items: string[] }[] {
+  const out: { stem?: string; items: string[] }[] = [{ items: [] }];
+  for (const g of group) {
+    if (/:\s*$/.test(g) && wordCount(g) <= 10) out.push({ stem: g.replace(/:\s*$/, '').trim(), items: [] });
+    else out[out.length - 1].items.push(g);
+  }
+  return out.filter((s) => s.items.length);
 }
 
 export function findLists(chunkParts: BodyPart[][], headings: (string | undefined)[]): TermList[] {
@@ -156,6 +226,10 @@ export function findLists(chunkParts: BodyPart[][], headings: (string | undefine
   const push = (category: string, rawItems: string[], chunk: number, leadText: string, question?: string, min = 3) => {
     const items = rawItems.map(splitItem).filter((i) => i.label.length > 1);
     if (items.length < min || items.length > 10) return;
+    // a cut-off label ("Seeks to describe the…") can't be recalled word for word, so it makes a poor card
+    if (items.some((i) => i.label.endsWith('…'))) return;
+    // the lecturer's objectives or course outline are a map of the lecture, not something to memorise
+    if (/\b(?:objectives?|outcomes?|aims|outline|syllabus|able to)\b/i.test(`${category} ${leadText}`)) return;
     const key = items.map((i) => i.label.toLowerCase()).join('|');
     if (seen.has(key)) return;
     seen.add(key);
@@ -174,18 +248,45 @@ export function findLists(chunkParts: BodyPart[][], headings: (string | undefine
       const group: string[] = [];
       while (i < parts.length && parts[i].t === 'li') group.push(parts[i++].x);
       const lead = parts[start - 1];
+      const heading = headings[chunk];
       let category: string | null = null;
+      let fromHeading = false;
       if (lead && lead.t === 'p' && wordCount(lead.x) <= 30) category = categoryFrom(splitSentences(lead.x).pop() || lead.x);
-      if (!category && lead && lead.t === 'h') category = categoryFrom(lead.x);
-      if (!category && start === 0 && headings[chunk]) category = categoryFrom(headings[chunk]!);
-      const labelled = group.filter((g) => wordCount(g) <= 6 || /^[^:–—]{2,60}?\s*(?::|\s[–—-]\s)/.test(g)).length;
-      if (category && group.every((g) => wordCount(g) <= 40) && labelled / group.length >= 0.6) push(category, group, chunk, lead?.x || '');
+      if (!category && lead && lead.t === 'h') {
+        category = categoryFrom(lead.x);
+        fromHeading = true;
+      }
+      if (!category && start === 0 && heading) {
+        category = categoryFrom(heading);
+        fromHeading = true;
+      }
+      let h = start - 1;
+      while (h >= 0 && parts[h].t !== 'h') h--;
+      const subject = cleanSubject(h >= 0 ? parts[h].x : heading || '');
+      for (const seg of splitGroup(pairUp(group))) {
+        let cat = seg.stem ? stemCategory(seg.stem, subject || category || '') : category;
+        let question: string | undefined;
+        if (!seg.stem && cat) {
+          // "Exploratory Data Analysis" is one thing, not a list of things: only plural headings name a list
+          if (fromHeading && !isPluralPhrase(cat)) {
+            if (!subject) continue;
+            cat = `key points about ${subject}`;
+            question = `Give ${seg.items.length} key points about ${subject}. Name them.`;
+          } else cat = withSubject(cat, subject);
+        }
+        const labelled = seg.items.filter((g) => wordCount(g) <= 6 || /^[^:–—]{2,60}?\s*(?::|\s[–—-]\s)/.test(g)).length;
+        if (cat && seg.items.every((g) => wordCount(g) <= 40) && labelled / seg.items.length >= 0.6) push(cat, seg.items, chunk, lead?.x || '', question);
+      }
     }
 
     // 2) inline enumerations: "The four stages of mitosis are prophase, metaphase, anaphase and telophase."
     let prevSentence = '';
+    let near = cleanSubject(headings[chunk] || '');
     for (const part of parts) {
-      if (part.t === 'h') continue;
+      if (part.t === 'h') {
+        near = cleanSubject(part.x) || near;
+        continue;
+      }
       for (const s of splitSentences(stripCitations(part.x))) {
         const before = prevSentence;
         prevSentence = s;
@@ -200,6 +301,10 @@ export function findLists(chunkParts: BodyPart[][], headings: (string | undefine
 
         if (colon) {
           category = colon[3].trim();
+          // "Substances move into and out of cells by three main processes:" → "processes by which substances move into and out of cells"
+          const via = colon[1].trim().match(/^(.{6,80}?)\s+(by|through|via)$/i);
+          if (via && !isPronounStart(words(via[1])[0] || '')) category = `${category} by which ${lowerFirst(via[1])}`;
+          else category = withSubject(category, near);
           tail = colon[4];
           declared = colon[2];
           question = `${trimEndPunct(s.slice(0, s.indexOf(':')))}. Name them.`;
@@ -210,10 +315,15 @@ export function findLists(chunkParts: BodyPart[][], headings: (string | undefine
             const ref = before.match(/\b(two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:main\s+|major\s+|key\s+)?([a-z][a-z-]*(?:\s+[a-z-]+){0,1})\b/i);
             if (ref) {
               category = ref[2].split(/\s+/).filter((w, i) => i === 0 || !STOPWORDS.has(w.toLowerCase())).join(' ');
+              const owner = before.match(/^(.{3,40}?)\s+(?:have|has|contain|contains|possess|possesses|show|shows)\s+(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
+              category = owner && !isPronounStart(words(owner[1])[0] || '') ? `${category} of ${lowerFirst(owner[1].replace(/^the\s+/i, ''))}` : withSubject(category, near);
               declared = ref[1];
               question = `${trimEndPunct(before.replace(/[.!?]+$/, ''))}. Name them.`;
             }
-          } else category = categoryFrom(m[1]);
+          } else {
+            category = categoryFrom(m[1]);
+            if (category) category = withSubject(category, near);
+          }
           tail = m[2];
         } else if (suchAs) {
           category = suchAs[1].toLowerCase();

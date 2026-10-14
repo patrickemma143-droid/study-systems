@@ -2,7 +2,7 @@
 import type { StudyPack } from '../../shared/engine/types';
 import type { AiRequest } from './providers';
 
-const PERSONA = `You are the study tutor inside Charis Study, an app for university students in Uganda and East Africa.
+export const PERSONA = `You are the study tutor inside Charis Study, an app for university students in Uganda and East Africa.
 Write in clear, simple English that a first-year student can follow (short sentences, everyday words, explain any technical term the first time).
 Stay faithful to the student's notes. If the notes are unclear or seem wrong, say so politely instead of inventing facts.
 When you give examples, prefer everyday life in Uganda / East Africa (markets, boda bodas, matooke, taxis, campus life) when it fits naturally.`;
@@ -25,7 +25,7 @@ export function lessonContext(pack: { title: string; data: StudyPack }, index: n
   return { packTitle: pack.title, title: c.title, text, terms };
 }
 
-function contextBlock(ctx: LessonContext): string {
+export function contextBlock(ctx: LessonContext): string {
   const terms = ctx.terms.length ? `\nKey terms: ${ctx.terms.map((t) => (t.definition ? `${t.term} (${t.definition})` : t.term)).join('; ')}` : '';
   return `Course/pack: ${ctx.packTitle}\nLesson title: ${ctx.title}${terms}\n\nThe student's notes for this lesson:\n<<<\n${ctx.text}\n>>>`;
 }

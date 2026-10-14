@@ -139,6 +139,40 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { q: 'Why is this important for the exam?', a: 'Because it links the definitions to how they are applied.' },
       ],
     });
+  } else if (req.system.includes('TASK:SMART_LESSON')) {
+    text = JSON.stringify({
+      title: `${title} (smart)`,
+      topic: 'Core ideas',
+      objectives: [`Define the key terms in ${title}.`, `Explain the main idea of ${title}.`, 'Apply it to a real example.'],
+      cards: [
+        { type: 'definition', front: `What is meant by ${title}?`, back: 'A short, exact definition from the notes.' },
+        { type: 'list', front: 'Name the 3 main parts covered in this lesson.', back: '• First part — what it does\n• Second part — what it does\n• Third part — what it does' },
+        { type: 'concept', front: `Why does ${title} matter?`, back: 'Because it links the definitions to how they are used. (Smart card)' },
+        { type: 'cloze', front: 'The main process in this lesson needs _____ to work.', back: 'energy' },
+      ],
+      quiz: [
+        { q: `Which statement best describes ${title}?`, options: ['The correct description (smart)', 'A near miss', 'A common mistake', 'Something from another lesson'], answer: 0, explanation: 'It matches the notes.' },
+        { q: 'Which of these is NOT part of the lesson?', options: ['Part one', 'Part two', 'Part three', 'Something unrelated'], answer: 3, explanation: 'The last option is not in the notes.' },
+      ],
+    });
+  } else if (req.system.includes('TASK:PAPER')) {
+    text = JSON.stringify({
+      title: 'MOCK PAPER (AI)',
+      duration: '3 hours',
+      instructions: ['Answer ALL questions in Section A and any TWO in Section B.'],
+      sections: [
+        { name: 'A', title: 'Short answers', instruction: 'Answer ALL questions.', questions: [
+          { n: 1, text: 'Define the term osmosis. (2 marks)', marks: 2, answer: 'Movement of water across a membrane.', guide: ['Water moves', 'across a partially permeable membrane'] },
+          { n: 2, text: 'State three functions of the cell membrane.', marks: 3, answer: 'Controls entry; protects; communicates.', guide: ['Controls what enters', 'Protects', 'Cell signalling'] },
+        ] },
+        { name: 'B', title: 'Essays', instruction: 'Answer any TWO questions.', questions: [
+          { n: 3, text: '(a) Describe mitosis. (10 marks) (b) Explain why it matters. (10 marks)', marks: 20, answer: 'Stages and importance.', guide: ['Prophase', 'Metaphase', 'Anaphase', 'Telophase'] },
+          { n: 4, text: 'Discuss active transport. (20 marks)', marks: 20, answer: 'Uses energy.', guide: ['Needs ATP', 'Against gradient'] },
+          { n: 5, text: 'Examine the role of mitochondria. (20 marks)', marks: 20, answer: 'Energy.', guide: ['ATP'] },
+        ] },
+      ],
+      totalMarks: 45,
+    });
   } else if (req.system.includes('TASK:FEEDBACK')) {
     const words = last.split(/\s+/).length;
     text = JSON.stringify({

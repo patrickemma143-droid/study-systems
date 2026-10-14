@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Layers, Lightbulb, MessageSquareText, Square, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Target, Layers, Lightbulb, MessageSquareText, Square, Volume2 } from 'lucide-react';
 import type { BodyPart } from '@shared/engine/types';
 import { api } from '../api';
 import { AiSimplify, TutorChat } from '../components/AiPanels';
 import { Highlighted, type Gloss } from '../components/Highlighted';
+import { lessonObjectives } from '@shared/engine/outline';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { setProgress, usePack, useStudyTimer } from '../lib/usePack';
 import { speakSequence, stopSpeaking, ttsSupported } from '../lib/speech';
@@ -108,6 +109,7 @@ export default function Lesson() {
   }
 
   const groups = groupBody(chunk.body);
+  const objectives = data.pack.data.outline?.objectives[index] ?? lessonObjectives(data.pack.data, index);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -135,6 +137,19 @@ export default function Lesson() {
           <Highlighted text={chunk.nutshell} terms={glossary} />
         </div>
       </div>
+
+      {objectives.length > 0 && (
+        <div className="sheet objectives-card" style={{ marginBottom: 18 }}>
+          <div className="small muted row" style={{ marginBottom: 6, gap: 6 }}>
+            <Target size={15} /> By the end of this lesson you should be able to:
+          </div>
+          <ul className="objectives">
+            {objectives.map((o, i) => (
+              <li key={i}>{o}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <AiSimplify packId={id} chunk={index} />
 

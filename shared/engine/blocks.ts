@@ -14,6 +14,9 @@ function looksLikeHeading(line: string, next: string | undefined): boolean {
   if (/[.;,?!]$/.test(t)) return false;
   const letters = t.replace(/[^A-Za-z]/g, '');
   if (letters.length >= 4 && letters === letters.toUpperCase() && wc <= 10) return true;
+  // Short title above a bullet list ("Types of epidemiological studies" / "- Descriptive studies")
+  if (next && BULLET_RE.test(next) && wc <= 8 && /^[A-Z0-9]/.test(t) && !t.endsWith(':') &&
+      !/\b(?:are|is|include|includes|consists?|comprises?|were|was|has|have|the following)\b/i.test(t)) return true;
   // Title-ish short line followed by a longer line of prose
   if (next && wordCount(next) > wc + 3 && /^[A-Z0-9]/.test(t) && !t.endsWith(':')) {
     const caps = t.split(/\s+/).filter((w) => /^[A-Z]/.test(w)).length;

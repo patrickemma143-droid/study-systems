@@ -16,7 +16,7 @@ const RATINGS: { r: Rating; label: string; cls: string; key: string }[] = [
   { r: 4, label: 'Easy', cls: 'easy', key: '4' },
 ];
 
-const TYPE_LABEL: Record<string, string> = { definition: 'Definition', reverse: 'Name the term', cloze: 'Fill the gap', list: 'List', custom: 'Your card' };
+const TYPE_LABEL: Record<string, string> = { definition: 'Definition', reverse: 'Name the term', cloze: 'Fill the gap', list: 'List', concept: 'Explain', custom: 'Your card' };
 
 export default function Flashcards() {
   const params = useParams();

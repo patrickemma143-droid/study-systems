@@ -30,6 +30,10 @@ function blankableTerm(sentence: string, terms: KeyTerm[]): { term: string; cloz
   return best ? { term: best.term, cloze: best.cloze } : null;
 }
 
+function lowerFirst(s: string): string {
+  return /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+}
+
 export function buildCards(chunks: Chunk[], glossary: Definition[], lists: TermList[], terms: KeyTerm[]): CardSeed[] {
   const cards: CardSeed[] = [];
   for (const chunk of chunks) {
@@ -46,8 +50,14 @@ export function buildCards(chunks: Chunk[], glossary: Definition[], lists: TermL
       local.push({
         chunk: chunk.index,
         type: 'list',
-        front: l.question ? `${l.question.replace(/Name them\.$/, l.ordered ? 'Name them in order.' : `Name all ${labels.length}.`)}` : `${l.ordered ? 'In order, name' : 'Name'} the ${labels.length} ${l.category}.`,
-        back: labels.map((x, i) => (l.ordered ? `${i + 1}. ${x}` : `• ${x}`)).join('\n'),
+        front: l.question ? `${l.question.replace(/Name them\.$/, l.ordered ? 'Name them in order.' : labels.length === 2 ? 'Name both.' : `Name all ${labels.length}.`)}` : `${l.ordered ? 'In order, name' : 'Name'} the ${labels.length} ${l.category}.`,
+        back: l.items
+          .map((it, i) => {
+            const head = l.ordered ? `${i + 1}. ${it.label}` : `• ${it.label}`;
+            // short explanations help the answer stick ("Analytic studies — test a causal hypothesis…")
+            return it.detail && it.detail !== it.label && wordCount(it.detail) <= 22 && l.items.length <= 6 ? `${head} — ${lowerFirst(it.detail.replace(/[.]$/, ''))}` : head;
+          })
+          .join('\n'),
         hint: `First letters: ${labels.map((x) => x.charAt(0).toUpperCase()).join(' ')}`,
       });
     }

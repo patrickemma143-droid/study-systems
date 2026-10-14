@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { BookOpenCheck, ClipboardList, Download, Eye, EyeOff, FileUp, KeyRound, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
+import { BookOpenCheck, ClipboardList, Sparkles, Download, Eye, EyeOff, FileUp, KeyRound, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
 import { buildPaper, type KeyAnalysis, type Paper as PaperDoc, type PaperAnalysis } from '@shared/engine/paper';
 import type { Level } from '@shared/engine/levels';
 import { api } from '../api';
@@ -8,9 +8,12 @@ import { useAuth } from '../auth';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { ACCEPT, extractWithOcr } from '../lib/extract';
 import { usePack, useStudyTimer } from '../lib/usePack';
+import { left, updateAiUsage, useAiStatus } from '../lib/ai';
 
 interface PastPaper {
   id: number;
+  packId?: number;
+  packTitle?: string;
   name: string;
   analysis: PaperAnalysis | null;
   key: KeyAnalysis | null;
@@ -29,22 +32,59 @@ export default function Paper() {
   const [guide, setGuide] = useState(false);
   const [seed, setSeed] = useState(1);
   const [papers, setPapers] = useState<PastPaper[]>([]);
+  const [others, setOthers] = useState<PastPaper[]>([]);
+  const [aiPaper, setAiPaper] = useState<PaperDoc | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  const aiStatus = useAiStatus();
+  const picked = useRef(false);
 
   useEffect(() => {
-    api<{ papers: PastPaper[] }>(`/packs/${id}/past-papers`)
-      .then((r) => setPapers(r.papers))
-      .catch(() => {});
+    Promise.all([
+      api<{ papers: PastPaper[] }>(`/packs/${id}/past-papers`).then((r) => r.papers).catch(() => [] as PastPaper[]),
+      api<{ papers: PastPaper[] }>('/packs/all/past-papers').then((r) => r.papers).catch(() => [] as PastPaper[]),
+    ]).then(([own, all]) => {
+      setPapers(own);
+      const rest = all.filter((p) => p.packId !== id);
+      setOthers(rest);
+      // a format learnt once is used from then on: start from the latest past paper
+      if (!picked.current) {
+        picked.current = true;
+        const first = own[0] || rest[0];
+        if (first) setStyleId(first.id);
+      }
+    });
   }, [id]);
+  useEffect(() => {
+    setAiPaper(null);
+    setAiErr(null);
+  }, [level, selected, styleId]);
   useEffect(() => {
     if (data && location.hash === '#past-papers') document.getElementById('past-papers')?.scrollIntoView({ block: 'start' });
   }, [data]);
 
-  const style = papers.find((p) => p.id === styleId)?.analysis || null;
-  const keyStyle = papers.find((p) => p.id === styleId)?.key?.style || null;
-  const paper = useMemo(() => (data ? buildPaper(data.pack.data, data.pack.title, { level, chunks: selected, style, seed: `${seed}` }) : null), [data, level, selected, style, seed]);
+  const chosen = [...papers, ...others].find((p) => p.id === styleId) || null;
+  const style = chosen?.analysis || null;
+  const keyStyle = chosen?.key?.style || null;
+  const quick = useMemo(() => (data ? buildPaper(data.pack.data, data.pack.title, { level, chunks: selected, style, seed: `${seed}` }) : null), [data, level, selected, style, seed]);
 
+  const paper = aiPaper || quick;
   if (error) return <ErrorState message={error} />;
   if (!data || !paper) return <Loading />;
+
+  async function writeWithAi() {
+    setAiBusy(true);
+    setAiErr(null);
+    try {
+      const r = await api<{ paper: PaperDoc; usage: any }>('/ai/paper', { body: { packId: id, pastPaperId: styleId || undefined, chunks: selected, level, fresh: seed } });
+      updateAiUsage(r.usage);
+      setAiPaper({ ...r.paper, title: r.paper.title || data!.pack.title });
+    } catch (e: any) {
+      setAiErr(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  }
   const chunks = data.pack.data.chunks;
   const school = (user?.university || 'Charis Study').toUpperCase();
 
@@ -100,6 +140,15 @@ export default function Paper() {
                     My past paper: {p.name}
                   </option>
                 ))}
+                {others.length > 0 && (
+                  <optgroup label="Past papers from my other courses">
+                    {others.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.packTitle})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           </div>
@@ -123,7 +172,13 @@ export default function Paper() {
               <input type="checkbox" checked={guide} onChange={(e) => setGuide(e.target.checked)} /> Include the marking guide
             </label>
             <div className="row">
-              <button className="btn" onClick={() => setSeed((n) => n + 1)}>
+              <button
+                className="btn"
+                onClick={() => {
+                  setAiPaper(null);
+                  setSeed((n) => n + 1);
+                }}
+              >
                 <RefreshCw size={16} /> New paper
               </button>
               <button className="btn" onClick={downloadWord}>
@@ -134,6 +189,37 @@ export default function Paper() {
               </button>
             </div>
           </div>
+          {chosen && style && (
+            <p className="small" style={{ margin: 0 }}>
+              Copying the format of <strong>{chosen.name}</strong>: {style.sections.length ? `${style.sections.length} section${style.sections.length === 1 ? '' : 's'}, ` : ''}
+              {style.questionCount} questions{style.totalMarks ? `, ${style.totalMarks} marks` : ''}
+              {style.duration ? `, ${style.duration}` : ''} — the same sections, number of questions, marks, sub-parts and command words.
+            </p>
+          )}
+          {aiStatus?.enabled && (
+            <div className="sheet tight ai-card row between" style={{ margin: 0 }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <strong className="row" style={{ gap: 6 }}>
+                  <Sparkles size={17} color="var(--biro)" /> {aiPaper ? 'You are looking at the AI paper' : 'Let the AI set it like your examiner'}
+                </strong>
+                <div className="small muted">
+                  {aiPaper
+                    ? 'Written fresh from your notes in the same format. Press “New paper” for the quick version again.'
+                    : `The AI reads ${chosen ? 'your past paper' : 'a standard format'} and writes brand-new questions on your notes, with a marking guide. ${left(aiStatus, 'paper')} AI papers left today.`}
+                </div>
+                {aiErr && (
+                  <div className="small" style={{ color: '#b42318', marginTop: 4 }}>
+                    {aiErr}
+                  </div>
+                )}
+              </div>
+              {!aiPaper && (
+                <button className="btn primary small" onClick={writeWithAi} disabled={aiBusy || left(aiStatus, 'paper') <= 0}>
+                  <Sparkles size={15} /> {aiBusy ? 'Writing the paper…' : 'Write it with AI'}
+                </button>
+              )}
+            </div>
+          )}
           <p className="hint" style={{ margin: 0 }}>
             “Download PDF” opens your print screen: choose “Save as PDF”. Tip: download it without the marking guide, sit the paper, then download the guide to mark yourself.
           </p>

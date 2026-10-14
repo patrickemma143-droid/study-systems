@@ -1,15 +1,17 @@
 import type { Chunk, PalaceItem, SourceBlock, StudyPack } from './types';
 import { cleanBlocks } from './blocks';
-import { buildSections } from './chunker';
+import { ADMIN_TITLE_RE, buildSections } from './chunker';
 import { findDefinitions, findLists } from './definitions';
 import { extractKeyTerms } from './keyterms';
 import { buildMnemonic } from './mnemonics';
+import { buildOutline } from './outline';
 import { buildCards, buildPrompts, buildQuiz } from './practice';
 import { pickKeyPoints, scoreSentences, tidySentence } from './summarize';
 import { capitalize, contentStems, seededRandom, splitSentences, termRegex, wordCount } from './text';
 
 export * from './types';
 export { blocksFromPlainText } from './blocks';
+export { buildOutline, lessonObjectives } from './outline';
 
 export interface BuildOptions {
   title?: string;
@@ -35,8 +37,19 @@ export function buildStudyPack(blocks: SourceBlock[], opts: BuildOptions = {}): 
   // sentences per chunk (bullets count as one "sentence" each)
   const chunkSentences = sections.map((s) => {
     const out: { text: string; lead: boolean }[] = [];
+    // the lecturer's objectives and course outline are signposts, not content to summarise
+    let signpost = false;
     for (const p of s.parts) {
-      if (p.t === 'h') continue;
+      if (p.t === 'h') {
+        signpost = ADMIN_TITLE_RE.test(p.x);
+        continue;
+      }
+      if (p.t === 'p' && /\b(?:should|will) be able to\b|^by the end of\b/i.test(p.x) && wordCount(p.x) <= 30) {
+        signpost = true;
+        continue;
+      }
+      if (signpost && p.t === 'li') continue;
+      signpost = false;
       const ss = p.t === 'li' ? [p.x] : splitSentences(p.x);
       ss.forEach((x, i) => out.push({ text: x.trim(), lead: i === 0 }));
     }
@@ -148,7 +161,7 @@ export function buildStudyPack(blocks: SourceBlock[], opts: BuildOptions = {}): 
   const words = chunks.reduce((n, c) => n + c.wordCount, 0);
   const title = (opts.title || cleaned.find((b) => b.kind === 'heading')?.text || chunks[0]?.title || 'My notes').slice(0, 140);
 
-  return {
+  const pack: StudyPack = {
     version: 1,
     title,
     overview,
@@ -168,4 +181,6 @@ export function buildStudyPack(blocks: SourceBlock[], opts: BuildOptions = {}): 
       readMinutes: Math.max(1, Math.round(words / READING_WPM)),
     },
   };
+  pack.outline = buildOutline(pack);
+  return pack;
 }

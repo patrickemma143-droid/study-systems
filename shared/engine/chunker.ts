@@ -43,6 +43,8 @@ function splitLongParagraph(text: string): string[] {
   return out;
 }
 
+export const ADMIN_TITLE_RE = /^(?:(?:learning|lecture|lesson|session|course|specific|general)\s+)?(?:objectives?|outcomes?|aims?|outline|content|overview|syllabus)\b|\bby the end of\b/i;
+
 export function buildSections(blocks: SourceBlock[]): Section[] {
   const sections: Section[] = [];
   let cur: Section | null = null;
@@ -116,6 +118,8 @@ export function buildSections(blocks: SourceBlock[]): Section[] {
     if (prev && prev.words < MIN_WORDS && prev.words + s.words <= MAX_WORDS) {
       // a near-empty section (e.g. a title slide) gives its place to the next real one
       if (prev.words < 15 && s.title) {
+        // keep the heading in the text so "Course outline" / "Objectives" still mark what follows
+        if (prev.title && prev.words > 0) prev.parts.unshift({ t: 'h', x: prev.title });
         prev.titles = [];
         prev.title = undefined;
       }
@@ -141,6 +145,12 @@ export function buildSections(blocks: SourceBlock[]): Section[] {
   }
 
   for (const s of merged) {
+    // "Learning objectives" or "Course outline" is a signpost, not what the lesson is about
+    const real = s.titles.filter((t) => !ADMIN_TITLE_RE.test(t));
+    if (real.length && real.length < s.titles.length) {
+      s.titles = real;
+      s.title = real[0];
+    }
     if (s.titles.length >= 2) {
       const joined = `${s.titles[0]} & ${s.titles[1]}`;
       s.title = joined.length <= 64 ? joined : s.titles[0];

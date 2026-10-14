@@ -1721,3 +1721,12 @@ kbd {
 label.btn {
   cursor: pointer;
 }
+
+/* course outline and learning objectives */
+.objectives { margin: 0; padding-left: 0; list-style: none; }
+.objectives li { position: relative; padding: 4px 0 4px 26px; line-height: 1.45; }
+.objectives li::before { content: ''; position: absolute; left: 4px; top: 10px; width: 12px; height: 12px; border: 2px solid #2f8f55; border-radius: 50%; }
+.objectives-card { border-left: 6px solid #2f8f55; }
+.outline-card h3 { display: flex; align-items: center; gap: 8px; }
+.topic-head { padding: 14px 0 4px; font-weight: 600; border-bottom: 1px dashed var(--line, #ddd); }
+.topic-head .small { display: block; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; font-size: .72rem; }
