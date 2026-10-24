@@ -182,3 +182,46 @@ export function cleanPaper(raw: any): Paper {
     totalMarks: total > 0 && total <= sum ? total : sum,
   };
 }
+
+// ─── Marking a written exam answer ──────────────────────────
+
+export function markAnswerRequest(o: { question: string; marks: number; key: string | null; notes: string; answer: string }): AiRequest {
+  return {
+    system: `${PERSONA}\n\nTASK:MARK_ANSWER\nYou are a fair university examiner marking one answer. Award marks point by point like a real marking scheme: a point earns its mark only if the student states it correctly; vague or wrong points earn nothing; good extra points not in the key can earn marks if correct. Never give more than the question is worth. Judge content, not spelling or grammar.
+
+QUESTION (${o.marks} marks):
+${o.question.slice(0, 2000)}
+
+${o.key ? `MARKING KEY / MODEL ANSWER:\n<<<\n${o.key.slice(0, 5000)}\n>>>` : 'There is no marking key: mark against the course notes below.'}
+
+COURSE NOTES FOR THIS QUESTION:
+<<<
+${o.notes.slice(0, 9000)}
+>>>`,
+    messages: [
+      {
+        role: 'user',
+        content: `The student's answer:\n<<<\n${o.answer.slice(0, 8000)}\n>>>\n\nReply with JSON only, in exactly this shape:
+{"awarded": number (may be a half mark), "outOf": ${o.marks},
+ "points": [{"point": "a marking point from the key", "got": true or false, "comment": "short note: what was right, missing or wrong"}],
+ "comment": "two sentences to the student as 'you': overall verdict",
+ "improve": "one concrete way to gain the missing marks",
+ "model": "a short full-marks answer in the student's level of English, at most 150 words"}`,
+      },
+    ],
+    json: true,
+    maxTokens: 1400,
+    temperature: 0.1,
+  };
+}
+
+export function cleanMark(outOf: number) {
+  return (raw: any) => {
+    const awarded = Math.max(0, Math.min(outOf, Math.round(Number(raw?.awarded) * 2) / 2 || 0));
+    const points = (Array.isArray(raw?.points) ? raw.points : [])
+      .map((p: any) => ({ point: str(p?.point, 300), got: !!p?.got, comment: str(p?.comment, 300) }))
+      .filter((p: any) => p.point)
+      .slice(0, 25);
+    return { awarded, outOf, points, comment: str(raw?.comment, 600), improve: str(raw?.improve, 400), model: str(raw?.model, 1500) };
+  };
+}

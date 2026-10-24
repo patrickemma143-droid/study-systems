@@ -8,7 +8,7 @@ import { useToast } from './ui';
 interface MyPoints {
   week: string;
   total: number;
-  categories: Record<'memory' | 'fast' | 'explain' | 'steady', number>;
+  categories: Record<'memory' | 'fast' | 'explain' | 'steady' | 'helper', number>;
   allTime: number;
   rank: number | null;
   rankUniversity: number | null;
@@ -22,7 +22,7 @@ interface MyPoints {
   history: { week: string; points: number }[];
 }
 
-const LABEL: Record<string, string> = { memory: 'Memory', fast: 'Fast learner', explain: 'Explainer', steady: 'Consistency' };
+const LABEL: Record<string, string> = { memory: 'Memory', fast: 'Fast learner', explain: 'Explainer', steady: 'Consistency', helper: 'Helper (shared to the library)' };
 
 /** The student's own points, shown on their profile. */
 export function PointsCard() {

@@ -9,17 +9,18 @@ import { LEVEL_POINTS } from '../shared/engine/levels';
 import { words } from '../shared/engine/text';
 import type { StudyPack } from '../shared/engine/types';
 
-export type Category = 'memory' | 'fast' | 'explain' | 'steady';
+export type Category = 'memory' | 'fast' | 'explain' | 'steady' | 'helper';
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   memory: 'Memory',
   fast: 'Fast learner',
   explain: 'Explainer',
   steady: 'Consistency',
+  helper: 'Helper',
 };
 
 /** Most points a student can earn per category in one day (stops grinding). */
-const DAILY_CAP: Record<Category, number> = { memory: 250, fast: 200, explain: 200, steady: 20 };
+const DAILY_CAP: Record<Category, number> = { memory: 250, fast: 200, explain: 200, steady: 20, helper: 100 };
 
 /** Monday (YYYY-MM-DD) of the week a day falls in. Weeks run Monday to Sunday, Kampala time. */
 export function weekOf(day: string): string {
@@ -206,6 +207,7 @@ export async function leaderboard(week: string, opts: { university?: string; cou
     .sum({ fast: db.raw("CASE WHEN points_events.category = 'fast' THEN points_events.points ELSE 0 END") })
     .sum({ explain: db.raw("CASE WHEN points_events.category = 'explain' THEN points_events.points ELSE 0 END") })
     .sum({ steady: db.raw("CASE WHEN points_events.category = 'steady' THEN points_events.points ELSE 0 END") })
+    .sum({ helper: db.raw("CASE WHEN points_events.category = 'helper' THEN points_events.points ELSE 0 END") })
     .max({ bestQuiz: db.raw("CASE WHEN points_events.dedupe LIKE 'quiz-%' THEN points_events.score END") })
     .max({ bestExplain: db.raw("CASE WHEN points_events.category = 'explain' THEN points_events.score END") })
     .orderBy('total', 'desc');
@@ -222,6 +224,7 @@ export async function leaderboard(week: string, opts: { university?: string; cou
     fast: Number(r.fast || 0),
     explain: Number(r.explain || 0),
     steady: Number(r.steady || 0),
+    helper: Number(r.helper || 0),
     bestQuiz: r.bestQuiz == null ? null : Number(r.bestQuiz),
     bestExplain: r.bestExplain == null ? null : Number(r.bestExplain),
   }));

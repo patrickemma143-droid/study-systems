@@ -12,6 +12,7 @@ import { Layout } from './components/Layout';
 import { Loading, ToastProvider } from './components/ui';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { lazyPage, reloadForNewVersion } from './lib/lazyPage';
+import { registerServiceWorker, startOfflineSync } from './lib/offline';
 import Landing from './pages/Landing';
 import AuthPage from './pages/AuthPage';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +26,12 @@ window.addEventListener('vite:preloadError', (e) => {
 // Study pages load on demand so the first visit stays light on mobile data.
 const NewPack = lazyPage(() => import('./pages/NewPack'));
 const PackHome = lazyPage(() => import('./pages/PackHome'));
+const Library = lazyPage(() => import('./pages/Library'));
+const Coach = lazyPage(() => import('./pages/Coach'));
+const Battle = lazyPage(() => import('./pages/Battle'));
+const Classes = lazyPage(() => import('./pages/Classes'));
+const ClassPage = lazyPage(() => import('./pages/ClassPage'));
+const LibraryItem = lazyPage(() => import('./pages/LibraryItem'));
 const Lesson = lazyPage(() => import('./pages/Lesson'));
 const Flashcards = lazyPage(() => import('./pages/Flashcards'));
 const QuizPage = lazyPage(() => import('./pages/QuizPage'));
@@ -43,17 +50,26 @@ const Plan = lazyPage(() => import('./pages/Plan'));
 const Ranks = lazyPage(() => import('./pages/Ranks'));
 const Paper = lazyPage(() => import('./pages/Paper'));
 
+/** Only same-site paths, never another website. */
+function safeNext(next: string | null): string {
+  return next && next.startsWith('/') && !next.startsWith('//') ? next : '/home';
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <Loading />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    // come back to the page they wanted (e.g. a class join link) after logging in
+    const here = location.pathname + location.search;
+    return <Navigate to={here && here !== '/home' ? `/login?next=${encodeURIComponent(here)}` : '/login'} replace />;
+  }
   return <>{children}</>;
 }
 
 function PublicOnly({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <Loading />;
-  if (user) return <Navigate to="/home" replace />;
+  if (user) return <Navigate to={safeNext(new URLSearchParams(location.search).get('next'))} replace />;
   return <>{children}</>;
 }
 
@@ -73,6 +89,12 @@ function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/plan" element={<Plan />} />
           <Route path="/ranks" element={<Ranks />} />
+          <Route path="/library" element={<Library />} />
+          <Route path="/library/:id" element={<LibraryItem />} />
+          <Route path="/classes" element={<Classes />} />
+          <Route path="/class/:id" element={<ClassPage />} />
+          <Route path="/join/:code" element={<Classes />} />
+          <Route path="/battle/:code" element={<Battle />} />
           <Route path="/pack/:id" element={<PackHome />} />
           <Route path="/pack/:id/learn/:chunk" element={<Lesson />} />
           <Route path="/pack/:id/cards" element={<Flashcards />} />
@@ -87,12 +109,16 @@ function App() {
           <Route path="/pack/:id/listen" element={<Listen />} />
           <Route path="/pack/:id/sheet" element={<CheatSheet />} />
           <Route path="/pack/:id/paper" element={<Paper />} />
+          <Route path="/pack/:id/coach" element={<Coach />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
       </Routes>
     </Suspense>
   );
 }
+
+registerServiceWorker();
+startOfflineSync();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

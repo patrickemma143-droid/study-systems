@@ -323,6 +323,165 @@ migrations['006_paper_keys'] = {
   async down() {},
 };
 
+migrations['007_library'] = {
+  async up(k) {
+    // The shared library: study packs and past papers students choose to share with everyone
+    await createIfMissing(k, 'library_items', (t) => {
+      t.increments('id').primary();
+      t.integer('owner_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('kind', 10).notNullable(); // pack | paper
+      t.integer('pack_id').unsigned(); // the owner's pack it came from (may be deleted later)
+      t.integer('paper_id').unsigned();
+      t.string('item_type', 12).notNullable(); // notes | book | slides | paper
+      t.string('title', 200).notNullable();
+      t.string('faculty', 40).notNullable();
+      t.string('university', 160);
+      t.string('course_code', 40);
+      t.string('course_name', 160);
+      t.integer('year');
+      t.string('semester', 20);
+      t.string('author', 160);
+      t.string('description', 600);
+      t.string('text_hash', 64);
+      t.integer('words').notNullable().defaultTo(0);
+      t.integer('lessons').notNullable().defaultTo(0);
+      t.integer('cards').notNullable().defaultTo(0);
+      t.boolean('smart').notNullable().defaultTo(false);
+      t.boolean('has_key').notNullable().defaultTo(false);
+      t.text('data', 'longtext').notNullable(); // snapshot: pack JSON or past paper JSON
+      t.text('source_text', 'longtext');
+      t.integer('uses').notNullable().defaultTo(0);
+      t.integer('rating_sum').notNullable().defaultTo(0);
+      t.integer('rating_count').notNullable().defaultTo(0);
+      t.integer('reports').notNullable().defaultTo(0);
+      t.string('status', 10).notNullable().defaultTo('live'); // live | hidden
+      t.bigInteger('created_at').notNullable();
+      t.bigInteger('updated_at').notNullable();
+      t.index(['status', 'faculty']);
+      t.index(['course_code']);
+      t.index(['text_hash']);
+      t.index(['owner_id']);
+    });
+    await createIfMissing(k, 'library_ratings', (t) => {
+      t.increments('id').primary();
+      t.integer('item_id').unsigned().notNullable().references('id').inTable('library_items').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('stars').notNullable();
+      t.bigInteger('created_at').notNullable();
+      t.unique(['item_id', 'user_id']);
+    });
+    await createIfMissing(k, 'library_reports', (t) => {
+      t.increments('id').primary();
+      t.integer('item_id').unsigned().notNullable().references('id').inTable('library_items').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('reason', 40).notNullable();
+      t.string('detail', 500);
+      t.bigInteger('created_at').notNullable();
+      t.unique(['item_id', 'user_id']);
+    });
+    await createIfMissing(k, 'library_uses', (t) => {
+      t.increments('id').primary();
+      t.integer('item_id').unsigned().notNullable().references('id').inTable('library_items').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.bigInteger('created_at').notNullable();
+      t.unique(['item_id', 'user_id']);
+    });
+    // where a pack came from, so we can link back and not offer the same library item again
+    if (!(await k.schema.hasColumn('packs', 'library_item_id'))) await k.schema.alterTable('packs', (t) => t.integer('library_item_id'));
+  },
+  async down(k) {
+    for (const t of ['library_uses', 'library_reports', 'library_ratings', 'library_items']) await k.schema.dropTableIfExists(t);
+  },
+};
+
+migrations['008_classes'] = {
+  async up(k) {
+    // Class groups: a course rep or lecturer shares notes, past papers and the exam date with a class
+    await createIfMissing(k, 'classes', (t) => {
+      t.increments('id').primary();
+      t.integer('owner_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('name', 160).notNullable();
+      t.string('course_code', 40);
+      t.string('university', 160);
+      t.string('join_code', 12).notNullable().unique();
+      t.string('exam_date', 10);
+      t.bigInteger('created_at').notNullable();
+    });
+    await createIfMissing(k, 'class_members', (t) => {
+      t.increments('id').primary();
+      t.integer('class_id').unsigned().notNullable().references('id').inTable('classes').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('role', 10).notNullable().defaultTo('member'); // owner | rep | member
+      t.bigInteger('joined_at').notNullable();
+      t.unique(['class_id', 'user_id']);
+      t.index(['user_id']);
+    });
+    await createIfMissing(k, 'class_items', (t) => {
+      t.increments('id').primary();
+      t.integer('class_id').unsigned().notNullable().references('id').inTable('classes').onDelete('CASCADE');
+      t.integer('added_by').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('kind', 10).notNullable(); // pack | paper
+      t.string('title', 200).notNullable();
+      t.integer('year');
+      t.integer('lessons').notNullable().defaultTo(0);
+      t.integer('cards').notNullable().defaultTo(0);
+      t.text('data', 'longtext').notNullable();
+      t.text('source_text', 'longtext');
+      t.bigInteger('created_at').notNullable();
+      t.index(['class_id']);
+    });
+    await createIfMissing(k, 'class_posts', (t) => {
+      t.increments('id').primary();
+      t.integer('class_id').unsigned().notNullable().references('id').inTable('classes').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('text', 1000).notNullable();
+      t.bigInteger('created_at').notNullable();
+      t.index(['class_id']);
+    });
+    await createIfMissing(k, 'class_item_uses', (t) => {
+      t.increments('id').primary();
+      t.integer('item_id').unsigned().notNullable().references('id').inTable('class_items').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('pack_id');
+      t.bigInteger('created_at').notNullable();
+      t.unique(['item_id', 'user_id']);
+    });
+  },
+  async down(k) {
+    for (const t of ['class_item_uses', 'class_posts', 'class_items', 'class_members', 'classes']) await k.schema.dropTableIfExists(t);
+  },
+};
+
+migrations['009_battles'] = {
+  async up(k) {
+    // Quiz battles: the same questions for two students, marked on the server
+    await createIfMissing(k, 'battles', (t) => {
+      t.increments('id').primary();
+      t.string('code', 12).notNullable().unique();
+      t.integer('creator_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('opponent_id').unsigned().references('id').inTable('users').onDelete('SET NULL');
+      t.integer('class_id');
+      t.string('title', 200).notNullable();
+      t.string('level', 10).notNullable();
+      t.text('questions', 'longtext').notNullable();
+      t.integer('creator_score');
+      t.integer('creator_ms');
+      t.text('creator_answers');
+      t.integer('opponent_score');
+      t.integer('opponent_ms');
+      t.text('opponent_answers');
+      t.string('status', 10).notNullable().defaultTo('open'); // open | done
+      t.bigInteger('created_at').notNullable();
+      t.bigInteger('expires_at').notNullable();
+      t.index(['creator_id']);
+      t.index(['opponent_id']);
+    });
+  },
+  async down(k) {
+    await k.schema.dropTableIfExists('battles');
+  },
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

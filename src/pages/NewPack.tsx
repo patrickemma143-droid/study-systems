@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ClipboardPaste,
   FileUp,
@@ -185,6 +185,12 @@ export default function NewPack() {
         Give Charis Study your material. It will be split into short lessons
         with flashcards, quizzes and memory tricks.
       </p>
+      <Link to="/library" className="sheet tight lib-banner" style={{ marginBottom: 18, textDecoration: 'none', color: 'inherit' }}>
+        <span>
+          <strong>Check the library first.</strong> <span className="small muted">A classmate may already have shared these notes, a book or past papers for your course — add them in one tap.</span>
+        </span>
+        <span className="btn small">Search the library</span>
+      </Link>
 
       <div
         className="segmented"

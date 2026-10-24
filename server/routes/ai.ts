@@ -6,8 +6,9 @@ import { db, now, parseJSON } from '../db';
 import type { StudyPack } from '../../shared/engine/types';
 import { AiError } from '../ai/providers';
 import { feedbackRequest, lessonContext, simplifyRequest, tutorRequest } from '../ai/prompts';
-import { cleanPaper, cleanSmartLesson, mergeSmartLesson, paperRequest, smartLessonRequest } from '../ai/smart';
+import { cleanMark, markAnswerRequest, cleanPaper, cleanSmartLesson, mergeSmartLesson, paperRequest, smartLessonRequest } from '../ai/smart';
 import { buildOutline } from '../../shared/engine/outline';
+import { contentStems } from '../../shared/engine/text';
 import type { KeyAnalysis } from '../../shared/engine/paper';
 import { cachedJson, cleanFeedback, cleanSimplify, limitsFor, liveText, peekJson } from '../ai/service';
 
@@ -200,5 +201,36 @@ aiRouter.post(
     const key = `${body.level}\n${body.fresh || 0}\n${past?.text.slice(0, 20000) || ''}\n${lessons.map((l) => `${l.title}\n${l.text}`).join('\n')}`;
     const { data, cached } = await cachedJson(uid, 'paper', key, req2, cleanPaper);
     res.json({ paper: data, cached, usage: await limitsFor(uid) });
+  }),
+);
+
+/** Mark a written exam answer like an examiner, against the marking key (or the notes). */
+aiRouter.post(
+  '/mark-answer',
+  wrap(async (req, res) => {
+    requireAi();
+    const uid = userId(res);
+    const body = z
+      .object({
+        packId: z.number().int(),
+        question: z.string().trim().min(3).max(3000),
+        marks: z.number().int().min(1).max(100),
+        key: z.string().trim().max(8000).optional(),
+        answer: z.string().trim().min(5, 'Write your answer first.').max(10000),
+      })
+      .parse(req.body);
+    const pack = await loadPack(uid, body.packId);
+    // the lessons this question is about, so the AI marks against the student's own course
+    const qStems = new Set(contentStems(body.question));
+    const ranked = pack.data.chunks
+      .map((c) => ({ c, s: contentStems(`${c.title} ${c.keyTerms.join(' ')}`).filter((w) => qStems.has(w)).length }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 2)
+      .map((x) => lessonContext(pack, x.c.index)!)
+      .filter(Boolean);
+    const notes = ranked.map((l) => `## ${l.title}\n${l.text}`).join('\n\n');
+    const key = `${body.question}\n${body.marks}\n${body.key || ''}\n${body.answer}`;
+    const { data, cached } = await cachedJson(uid, 'feedback', key, markAnswerRequest({ question: body.question, marks: body.marks, key: body.key || null, notes, answer: body.answer }), cleanMark(body.marks));
+    res.json({ ...data, cached, usage: await limitsFor(uid) });
   }),
 );

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { BookOpenCheck, ClipboardList, Sparkles, Download, Eye, EyeOff, FileUp, KeyRound, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { BookOpenCheck, ClipboardList, Library as LibraryIcon, Sparkles, Download, Eye, EyeOff, FileUp, KeyRound, Printer, RefreshCw, Trash2, Wand2 } from 'lucide-react';
 import { buildPaper, type KeyAnalysis, type Paper as PaperDoc, type PaperAnalysis } from '@shared/engine/paper';
 import type { Level } from '@shared/engine/levels';
 import { api } from '../api';
@@ -9,6 +9,8 @@ import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { ACCEPT, extractWithOcr } from '../lib/extract';
 import { usePack, useStudyTimer } from '../lib/usePack';
 import { left, updateAiUsage, useAiStatus } from '../lib/ai';
+import { ShareToLibrary } from '../components/LibraryParts';
+import { AnswerMarker } from '../components/AnswerMarker';
 
 interface PastPaper {
   id: number;
@@ -36,6 +38,7 @@ export default function Paper() {
   const [aiPaper, setAiPaper] = useState<PaperDoc | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  const [answering, setAnswering] = useState(false);
   const aiStatus = useAiStatus();
   const picked = useRef(false);
 
@@ -110,6 +113,15 @@ export default function Paper() {
         </p>
 
         <PastPapers packId={id} papers={papers} onChange={setPapers} onUse={(pid) => setStyleId(pid)} chunkTitle={(i) => chunks[i]?.title || ''} toast={toast} />
+
+        {papers.length > 0 && (
+          <Link to={`/pack/${id}/coach`} className="sheet tight lib-banner" style={{ marginTop: 12, textDecoration: 'none', color: 'inherit' }}>
+            <span className="small">
+              <strong>See what’s likely to come up.</strong> The exam coach reads all {papers.length} past paper{papers.length === 1 ? '' : 's'} and ranks your lessons by how often they’re examined.
+            </span>
+            <span className="btn small">Open the exam coach</span>
+          </Link>
+        )}
 
         <div className="section-head" style={{ marginTop: 30 }}>
           <h2>Make a mock paper</h2>
@@ -227,7 +239,39 @@ export default function Paper() {
 
       </div>
 
-      <article className="paper-doc" dangerouslySetInnerHTML={{ __html: paperHtml(paper, school, guide, keyStyle) }} />
+      <div className="no-print row between" style={{ margin: '18px 0 10px', flexWrap: 'wrap', gap: 8 }}>
+        <span className="small muted">{answering ? 'Write each answer, then mark it against the marking guide.' : 'Sit it on paper, or answer it here and get every answer marked.'}</span>
+        <button className="btn small" onClick={() => setAnswering((v) => !v)}>
+          {answering ? 'Show the printable paper' : 'Answer it here and get marked'}
+        </button>
+      </div>
+      {answering ? (
+        <div className="stack no-print">
+          {paper.sections.map((sec) => (
+            <div key={sec.name} className="sheet stack">
+              <strong>
+                Section {sec.name}: {sec.title}
+              </strong>
+              <div className="small muted">{sec.instruction}</div>
+              {sec.questions
+                .filter((q) => !q.options)
+                .map((q) => (
+                  <div key={q.n} className="point-check" style={{ display: 'block' }}>
+                    <div>
+                      <strong>{q.n}.</strong> {q.text} <span className="small muted">({q.marks} marks)</span>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <AnswerMarker packId={id} question={q.text} marks={q.marks} keyText={q.answer} guide={q.guide} />
+                    </div>
+                  </div>
+                ))}
+              {sec.questions.some((q) => q.options) && <div className="small muted">Multiple-choice questions: use the practice quiz to answer these with instant marking.</div>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <article className="paper-doc" dangerouslySetInnerHTML={{ __html: paperHtml(paper, school, guide, keyStyle) }} />
+      )}
     </div>
   );
 }
@@ -270,6 +314,7 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
   const [pasteKey, setPasteKey] = useState('');
   const [name, setName] = useState('');
   const [practise, setPractise] = useState<number | null>(null);
+  const [sharing, setSharing] = useState<number | null>(null);
   const paperInput = useRef<HTMLInputElement>(null);
   const keyInput = useRef<HTMLInputElement>(null);
 
@@ -388,12 +433,27 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
                 <KeyRound size={15} /> {p.key ? 'Replace key' : 'Add key'}
                 <input type="file" accept={ACCEPT} hidden onChange={(e) => addKey(p, e.target.files?.[0])} />
               </label>
+              <button className="btn small" onClick={() => setSharing(sharing === p.id ? null : p.id)} title="Share this past paper with everyone">
+                <LibraryIcon size={15} /> Share
+              </button>
               <button className="btn small ghost icon" aria-label="Remove this past paper" onClick={() => remove(p)}>
                 <Trash2 size={15} />
               </button>
             </div>
           </div>
-          {practise === p.id && p.analysis ? <Practise a={p.analysis} k={p.key} /> : p.analysis && <Analysis a={p.analysis} chunkTitle={chunkTitle} />}
+          {sharing === p.id && (
+            <div style={{ marginTop: 12 }}>
+              <ShareToLibrary
+                paperId={p.id}
+                onCancel={() => setSharing(null)}
+                onDone={() => {
+                  setSharing(null);
+                  toast('Past paper shared to the library. Thank you!');
+                }}
+              />
+            </div>
+          )}
+          {practise === p.id && p.analysis ? <Practise a={p.analysis} k={p.key} packId={packId} /> : p.analysis && <Analysis a={p.analysis} chunkTitle={chunkTitle} />}
         </div>
       ))}
     </div>
@@ -401,7 +461,7 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
 }
 
 /** Work through the real past paper; the marking key's answer is one tap away. */
-function Practise({ a, k }: { a: PaperAnalysis; k: KeyAnalysis | null }) {
+function Practise({ a, k, packId }: { a: PaperAnalysis; k: KeyAnalysis | null; packId: number }) {
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const qs = a.questions || [];
   if (!qs.length) return <p className="small muted">We couldn’t list the questions from this paper.</p>;
@@ -437,6 +497,11 @@ function Practise({ a, k }: { a: PaperAnalysis; k: KeyAnalysis | null }) {
                 )}
               </div>
               {ans && shown[i] && <div className="small key-answer">{ans}</div>}
+              {!q.objective && (
+                <div style={{ marginTop: 8 }}>
+                  <AnswerMarker packId={packId} question={q.text} marks={q.marks || 5} keyText={ans || null} />
+                </div>
+              )}
             </div>
           </div>
         );

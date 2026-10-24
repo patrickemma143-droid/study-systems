@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, CalendarDays, FileText, Flame, Globe, Layers, Plus, Presentation, Shuffle, Sparkles, StickyNote } from 'lucide-react';
+import { CalendarClock, CalendarDays, FileText, Flame, Globe, Layers, Plus, Presentation, Shuffle, Sparkles, StickyNote, LibraryBig, Users } from 'lucide-react';
 import { api, type PackSummary, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { Loading, Ring, useToast } from '../components/ui';
@@ -77,6 +77,15 @@ export default function Dashboard() {
             <Plus size={18} /> New study pack
           </Link>
         </div>
+      </div>
+
+      <div className="quick-links">
+        <Link to="/library" className="quick-link">
+          <LibraryBig size={18} /> <span><strong>Library</strong><span className="small muted">Notes, books and past papers from other students</span></span>
+        </Link>
+        <Link to="/classes" className="quick-link">
+          <Users size={18} /> <span><strong>Classes</strong><span className="small muted">Study with your class: shared notes and a class ranking</span></span>
+        </Link>
       </div>
 
       {packs.length > 0 && (

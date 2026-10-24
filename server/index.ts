@@ -16,6 +16,10 @@ import { adminRouter } from './routes/admin';
 import { planRouter } from './routes/plan';
 import { pointsRouter } from './routes/points';
 import { papersRouter } from './routes/papers';
+import { libraryRouter } from './routes/library';
+import { coachRouter } from './routes/coach';
+import { classesRouter } from './routes/classes';
+import { battlesRouter } from './routes/battles';
 import { publicRouter } from './public';
 import { startReminders } from './notify';
 
@@ -79,6 +83,10 @@ app.use('/api/admin', adminRouter);
 app.use('/api/plan', planRouter);
 app.use('/api/points', pointsRouter);
 app.use('/api/packs', papersRouter);
+app.use('/api/library', libraryRouter);
+app.use('/api/coach', coachRouter);
+app.use('/api/classes', classesRouter);
+app.use('/api/battles', battlesRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Public, search-engine-friendly pages (opt-in student profiles, top students, sitemap)

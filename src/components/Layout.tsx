@@ -1,12 +1,13 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { CalendarClock, Home, Layers, Plus, Trophy, UserRound } from 'lucide-react';
+import { CalendarClock, Home, Layers, Library as LibraryIcon, Plus, Trophy, Users } from 'lucide-react';
 import { api, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { today } from '../lib/util';
 import { FocusTimer } from './FocusTimer';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Loading, Logo } from './ui';
+import { useOnline, useQueued } from '../lib/offline';
 
 export function Layout() {
   const { user } = useAuth();
@@ -48,11 +49,17 @@ export function Layout() {
             <NavLink to="/plan">
               <CalendarClock size={18} /> Timetable
             </NavLink>
+            <NavLink to="/library">
+              <LibraryIcon size={18} /> Library
+            </NavLink>
+            <NavLink to="/classes">
+              <Users size={18} /> Classes
+            </NavLink>
             <NavLink to="/ranks">
               <Trophy size={18} /> Rankings
             </NavLink>
             <NavLink to="/new">
-              <Plus size={18} /> New study pack
+              <Plus size={18} /> New pack
             </NavLink>
           </nav>
           <div className="spacer" />
@@ -64,6 +71,7 @@ export function Layout() {
           </Link>
         </div>
       </header>
+      <OfflineBar />
       <main className="main" id="main">
         <ErrorBoundary key={loc.pathname}>
           <Suspense fallback={<Loading />}>
@@ -93,11 +101,23 @@ export function Layout() {
           <Plus size={22} />
           Add
         </NavLink>
-        <NavLink to="/profile">
-          <UserRound size={22} />
-          Profile
+        <NavLink to="/library">
+          <LibraryIcon size={22} />
+          Library
         </NavLink>
       </nav>
+    </div>
+  );
+}
+
+/** A thin bar when there is no connection, or answers are still waiting to be sent. */
+function OfflineBar() {
+  const online = useOnline();
+  const queued = useQueued();
+  if (online && !queued) return null;
+  return (
+    <div className="offline-bar" role="status">
+      {online ? `Sending ${queued} answer${queued === 1 ? '' : 's'} you made offline…` : `You're offline. Packs you saved for offline still work${queued ? ` — ${queued} answer${queued === 1 ? '' : 's'} will be sent when you're back online` : ''}.`}
     </div>
   );
 }

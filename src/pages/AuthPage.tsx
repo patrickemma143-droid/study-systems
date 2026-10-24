@@ -45,7 +45,8 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     try {
       if (isLogin) await login(form.email, form.password);
       else await register({ name: form.name, email: form.email, password: form.password, university: form.university || undefined, course: form.course || undefined });
-      nav('/home', { replace: true });
+      const next = new URLSearchParams(location.search).get('next');
+      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/home', { replace: true });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -125,11 +126,11 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           <p className="small muted" style={{ textAlign: 'center', margin: 0 }}>
             {isLogin ? (
               <>
-                New here? <Link to="/register">Create a free account</Link>
+                New here? <Link to={`/register${location.search}`}>Create a free account</Link>
               </>
             ) : (
               <>
-                Already have an account? <Link to="/login">Log in</Link>
+                Already have an account? <Link to={`/login${location.search}`}>Log in</Link>
               </>
             )}
           </p>

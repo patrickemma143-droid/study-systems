@@ -138,6 +138,15 @@ Flashcards also gained **Previous card**: step back through the cards answered i
 
 Students can make an opt-in **public profile** (`/u/<name>`) with their university, course, points, lessons mastered and weekly achievements ("#1 at Gulu University", "Top Explainer"). These pages, the public **top students** page (`/leaderboard`, public profiles only), `sitemap.xml` and `robots.txt` are server-rendered with search descriptions and schema.org data so Google can index them. Set `PUBLIC_URL` (e.g. `https://study.chariscreations.com`) once you use your own domain, then add the site and sitemap in Google Search Console.
 
+## Library, classes, battles and offline study
+
+- **Library** (`/library`): students share study packs and past papers with everyone (opt-in, with a "I'm allowed to share this" tick). Browse by faculty (Medicine, Engineering, Computing, Business, Law, Education, Agriculture, Sciences, Arts & Social Sciences), search by course code, topic, book, university or year, read the full text, and "Add to my study packs" in one tap. Faculty, course code, university and exam year are guessed from the notes. Uploading notes that are already shared offers the shared copy instead (smart packs come with their AI cards). Ratings, reports (three reports hide an item until an admin checks it on the admin page) and Helper points for the uploader each time someone uses it.
+- **Exam coach** (`/pack/:id/coach`): ranks lessons by how often they appear in the pack's past papers (years, marks, "due for a comeback"), combines that with weak spots (unstudied lessons, fading or forgotten cards, wrong quiz answers, low explanation scores) and builds a 10-card drill and a focused quiz.
+- **Answer marking**: write a full answer to any past-paper or mock-paper question and get it marked point by point against the marking key (instant, no AI) or by the AI examiner (uses the `feedback` allowance).
+- **Classes** (`/classes`): a course rep or lecturer creates a class with a join code/link (shareable on WhatsApp); shares packs and past papers; sets the exam date (copied to members' packs and timetables); class board; weekly class ranking; push notifications to members.
+- **Quiz battles** (`/battle/:code`): challenge a classmate to the same 5–20 questions; answers are marked on the server; most right wins, ties go to the faster player; Fast learner points for the winner.
+- **Offline**: "Save for offline" on a pack keeps its lessons and flashcards on the device; flashcard answers made offline are sent when the connection returns. The service worker fetches pages and data from the network first, so new versions still load straight away.
+
 ## AI helpers (optional)
 
 Everything above works with no AI. Add one API key and these appear for logged-in students:

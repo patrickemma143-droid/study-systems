@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpenCheck, CalendarDays, Check, Target, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
+import { BookOpenCheck, CalendarDays, Check, Download, Target, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { AiPackExplainer, SmartPackBuilder } from '../components/AiPanels';
 import { ReadinessCard } from '../components/Readiness';
+import { LibraryMatch, PackLibraryCard } from '../components/PackLibrary';
 import { Bar, Crumbs, ErrorState, Loading, useToast } from '../components/ui';
 import { METHODS, methodById, recommend } from '../methods';
 import { invalidatePack, usePack } from '../lib/usePack';
 import { daysUntil, examLabel, plural } from '../lib/util';
 import { buildOutline } from '@shared/engine/outline';
+import { downloadPack, isDownloaded } from '../lib/offline';
 
 const PREFS = [
   { id: 'reading', label: 'Reading' },
@@ -27,6 +29,8 @@ export default function PackHome() {
   const { data, error, reload } = usePack(id);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editExam, setEditExam] = useState<string | null>(null);
+  const [match, setMatch] = useState<'checking' | 'none' | 'found'>('checking');
+  const [offline, setOffline] = useState<'no' | 'saving' | 'saved'>(() => (isDownloaded(id) ? 'saved' : 'no'));
 
   const outline = useMemo(() => (data ? data.pack.data.outline ?? buildOutline(data.pack.data) : null), [data]);
   const done = useMemo(() => (data ? Object.values(data.progress).filter((p) => p.status === 'understood' || p.status === 'mastered').length : 0), [data]);
@@ -83,6 +87,8 @@ export default function PackHome() {
         </div>
       )}
 
+      {params.get('new') && !pack.libraryItemId && <LibraryMatch packId={id} onResult={(found) => setMatch(found ? 'found' : 'none')} />}
+
       <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 6 }}>
         {editTitle !== null ? (
           <form
@@ -131,6 +137,23 @@ export default function PackHome() {
             <CalendarDays size={14} /> {examLabel(pack.examDate) || 'Add exam date'}
           </button>
         )}
+        <button
+          className="chip"
+          disabled={offline === 'saving'}
+          onClick={async () => {
+            setOffline('saving');
+            try {
+              await downloadPack(id);
+              setOffline('saved');
+              toast('Saved on this device. You can study its lessons and flashcards without data.');
+            } catch (e: any) {
+              setOffline('no');
+              toast(e.message);
+            }
+          }}
+        >
+          <Download size={14} /> {offline === 'saved' ? 'Saved for offline ✓' : offline === 'saving' ? 'Saving…' : 'Save for offline'}
+        </button>
       </div>
 
       <div className="grid cols-3">
@@ -260,7 +283,7 @@ export default function PackHome() {
           packId={id}
           lessons={d.chunks.map((c) => c.index)}
           smartDone={Object.keys(d.smart?.lessons || {}).map(Number)}
-          autoStart={!!params.get('new')}
+          autoStart={!!params.get('new') && (match === 'none' || !!pack.libraryItemId)}
           onSaved={() => {
             invalidatePack(id);
             reload();
@@ -326,6 +349,8 @@ export default function PackHome() {
           </div>
         </div>
       </section>
+
+      <PackLibraryCard packId={id} libraryItemId={pack.libraryItemId ?? null} sharedItemId={pack.sharedItemId ?? null} onShared={reload} />
 
       {d.resources && d.resources.length > 0 && (
         <section className="section">

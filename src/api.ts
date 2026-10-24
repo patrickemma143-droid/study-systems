@@ -57,7 +57,7 @@ export interface PackSummary {
 export type ChunkStatus = 'new' | 'read' | 'understood' | 'mastered';
 
 export interface PackDetail {
-  pack: { id: number; title: string; sourceType: string; sourceName: string | null; examDate: string | null; createdAt: number; data: StudyPack };
+  pack: { id: number; title: string; sourceType: string; sourceName: string | null; examDate: string | null; createdAt: number; libraryItemId?: number | null; sharedItemId?: number | null; data: StudyPack };
   progress: Record<number, { status: ChunkStatus; bestRecall: number | null }>;
   cards: { total: number; due: number; new: number; learning: number; growing: number; strong: number; byChunk: Record<number, { total: number; known: number }> };
   quiz: { score: number; total: number; at: number }[];

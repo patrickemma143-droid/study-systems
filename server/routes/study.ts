@@ -45,6 +45,7 @@ studyRouter.get('/cards', async (req, res) => {
       packId: z.coerce.number().int().optional(),
       chunks: z.string().optional(),
       mode: z.enum(['due', 'all', 'weak']).default('due'),
+      ids: z.string().max(2000).optional(),
       limit: z.coerce.number().int().min(1).max(500).default(30),
     })
     .parse(req.query);
@@ -58,7 +59,14 @@ studyRouter.get('/cards', async (req, res) => {
     const list = q.chunks.split(',').map(Number).filter((n) => Number.isInteger(n));
     if (list.length) query = query.whereIn('cards.chunk_index', list);
   }
-  if (q.mode === 'due') {
+  if (q.ids) {
+    // a hand-picked set, e.g. the weak-spot coach's "drill these 10 cards"
+    const list = q.ids.split(',').map(Number).filter((n) => Number.isInteger(n)).slice(0, 100);
+    query = query.whereIn('cards.id', list.length ? list : [-1]);
+  }
+  if (q.ids) {
+    query = query.orderBy('cards.lapses', 'desc');
+  } else if (q.mode === 'due') {
     query = query.where('cards.due_at', '<=', t).orderByRaw('CASE WHEN cards.reps > 0 THEN 0 ELSE 1 END').orderBy('cards.due_at', 'asc');
   } else if (q.mode === 'weak') {
     query = query.where((w) => w.where('cards.lapses', '>', 0).orWhere('cards.difficulty', '>', 7).orWhere('cards.ease', '<', 2.3)).orderBy('cards.lapses', 'desc');
@@ -66,7 +74,7 @@ studyRouter.get('/cards', async (req, res) => {
     query = query.orderBy([{ column: 'cards.chunk_index' }, { column: 'cards.id' }]);
   }
   let rows: any[];
-  if (q.mode === 'due') {
+  if (q.mode === 'due' && !q.ids) {
     // Most-at-risk first: the cards you are closest to forgetting come up before the safe ones.
     const pool = await query.limit(Math.max(q.limit, 400));
     const state = (c: any) => ({ ease: Number(c.ease), interval_days: Number(c.interval_days), reps: Number(c.reps), lapses: Number(c.lapses), stability: c.stability == null ? null : Number(c.stability), last_reviewed_at: c.last_reviewed_at == null ? null : Number(c.last_reviewed_at) });

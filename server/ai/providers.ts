@@ -155,6 +155,20 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { q: 'Which of these is NOT part of the lesson?', options: ['Part one', 'Part two', 'Part three', 'Something unrelated'], answer: 3, explanation: 'The last option is not in the notes.' },
       ],
     });
+  } else if (req.system.includes('TASK:MARK_ANSWER')) {
+    const words = last.split(/\s+/).length;
+    const outOf = Number((req.system.match(/QUESTION \((\d+) marks\)/) || [])[1] || 10);
+    text = JSON.stringify({
+      awarded: Math.min(outOf, Math.round((words / 20) * 2) / 2),
+      outOf,
+      points: [
+        { point: 'States the key definition', got: words > 8, comment: 'Clear.' },
+        { point: 'Gives an example', got: /example|e\.g\./i.test(last), comment: 'Add a real example.' },
+      ],
+      comment: 'You have the main idea (AI marking test).',
+      improve: 'Add one example for each point.',
+      model: 'A model answer would define the term, explain it and give an example.',
+    });
   } else if (req.system.includes('TASK:PAPER')) {
     text = JSON.stringify({
       title: 'MOCK PAPER (AI)',

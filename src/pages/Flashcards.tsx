@@ -8,6 +8,7 @@ import { Bar, Crumbs, Loading, useToast } from '../components/ui';
 import { invalidatePack, usePack, useStudyTimer } from '../lib/usePack';
 import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
 import { plural, save, store, today } from '../lib/util';
+import { queueReview } from '../lib/offline';
 
 const RATINGS: { r: Rating; label: string; cls: string; key: string }[] = [
   { r: 1, label: 'Again', cls: 'again', key: '1' },
@@ -24,6 +25,7 @@ export default function Flashcards() {
   const [search, setSearch] = useSearchParams();
   const mode = (search.get('mode') as 'due' | 'all' | 'weak') || 'due';
   const chunks = search.get('chunks') || '';
+  const ids = search.get('ids') || '';
   const toast = useToast();
   const pack = usePack(packId ?? -1);
   useStudyTimer('flashcards', packId);
@@ -55,9 +57,10 @@ export default function Flashcards() {
     const q = new URLSearchParams({ mode, limit: mode === 'all' ? '200' : '40' });
     if (packId) q.set('packId', String(packId));
     if (chunks) q.set('chunks', chunks);
+    if (ids) q.set('ids', ids);
     const r = await api<{ cards: Card[] }>(`/study/cards?${q}`);
     setQueue(r.cards);
-  }, [mode, chunks, packId]);
+  }, [mode, chunks, ids, packId]);
 
   useEffect(() => {
     load();
@@ -102,7 +105,15 @@ export default function Flashcards() {
         setPos((p) => p + 1);
         if (packId) invalidatePack(packId);
       } catch (e: any) {
-        toast(e.message);
+        if (e?.status === 0) {
+          // no connection: keep studying, the answer is sent when you're back online
+          queueReview(card.id, { rating, day: today(), typed: !!mark, typedText: mark ? typed : undefined });
+          setHistory((h) => [...h, { card, rating, points: 0 }]);
+          setDone((d) => ({ reviewed: d.reviewed + 1, again: d.again + (rating === 1 ? 1 : 0), good: d.good + (rating >= 3 ? 1 : 0) }));
+          setQueue((q) => (q && rating === 1 ? [...q, card] : q));
+          setFlipped(false);
+          setPos((p) => p + 1);
+        } else toast(e.message);
       } finally {
         setBusy(false);
       }

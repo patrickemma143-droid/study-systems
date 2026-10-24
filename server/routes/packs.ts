@@ -10,7 +10,7 @@ import { SAMPLE_NOTES, SAMPLE_TITLE } from '../../shared/sample';
 import { fetchTopic } from '../services/wikipedia';
 
 /** New notes or a new exam date change the timetable: rebuild it in the background. */
-function refreshPlan(uid: number) {
+export function refreshPlan(uid: number) {
   db('users')
     .where({ id: uid })
     .select('study_prefs')
@@ -47,7 +47,7 @@ function sourceText(blocks: SourceBlock[]): string {
   return blocks.map((b) => (b.kind === 'heading' ? `\n${b.text}\n` : b.kind === 'item' ? `- ${b.text}` : b.text)).join('\n');
 }
 
-async function savePack(uid: number, pack: StudyPack, meta: { sourceType: string; sourceName?: string; examDate?: string | null; text: string }) {
+export async function savePack(uid: number, pack: StudyPack, meta: { sourceType: string; sourceName?: string; examDate?: string | null; text: string; libraryItemId?: number }) {
   const t = now();
   const id = await db.transaction(async (trx) => {
     const [packId] = await trx('packs').insert({
@@ -57,6 +57,7 @@ async function savePack(uid: number, pack: StudyPack, meta: { sourceType: string
       source_name: meta.sourceName || null,
       exam_date: meta.examDate || null,
       source_text: meta.text,
+      ...(meta.libraryItemId ? { library_item_id: meta.libraryItemId } : {}),
       data: JSON.stringify(pack),
       stats: JSON.stringify(pack.stats),
       created_at: t,
@@ -210,6 +211,8 @@ packsRouter.get('/:id', async (req, res) => {
       sourceName: row.source_name,
       examDate: row.exam_date,
       createdAt: Number(row.created_at),
+      libraryItemId: row.library_item_id ?? null,
+      sharedItemId: (await db('library_items').where({ owner_id: uid, kind: 'pack', pack_id: id }).first('id'))?.id ?? null,
       data,
     },
     readiness: await readinessFor(uid, id, data, row.exam_date).catch(() => null),

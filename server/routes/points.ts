@@ -21,7 +21,7 @@ pointsRouter.get('/me', async (_req, res) => {
   const recent = await db('points_events').where({ user_id: uid }).orderBy('id', 'desc').limit(12).select('category', 'points', 'reason', 'created_at');
   const weeks = await db('points_events').where({ user_id: uid }).groupBy('week').select('week').sum({ p: 'points' }).orderBy('week', 'desc').limit(6);
   const byCat = await db('points_events').where({ user_id: uid, week }).groupBy('category').select('category').sum({ p: 'points' });
-  const cats = { memory: 0, fast: 0, explain: 0, steady: 0 } as Record<string, number>;
+  const cats = { memory: 0, fast: 0, explain: 0, steady: 0, helper: 0 } as Record<string, number>;
   for (const r of byCat as any[]) cats[r.category] = Number(r.p);
   res.json({
     week,

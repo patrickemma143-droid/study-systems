@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { RotateCcw, X } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { RotateCcw, Swords, X } from 'lucide-react';
 import { shuffle } from '@shared/engine/text';
 import { buildLevelQuiz, LEVEL_POINTS, type Level } from '@shared/engine/levels';
 import { api, type MixedQuestion } from '../api';
@@ -18,7 +18,8 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
   useStudyTimer(mixed ? 'mixed-quiz' : 'quiz', packId);
 
   const [count, setCount] = useState(10);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [search] = useSearchParams();
+  const [selected, setSelected] = useState<number[]>(() => (search.get('chunks') || '').split(',').filter(Boolean).map(Number).filter((n) => Number.isInteger(n)));
   const [questions, setQuestions] = useState<RunnerQuestion[] | null>(null);
   const [result, setResult] = useState<QuizResult | null>(null);
   const [round, setRound] = useState(0);
@@ -39,6 +40,16 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
     if (!data) return [];
     return buildLevelQuiz(data.pack.data, level, selected.length ? selected : undefined, `${round}`);
   }, [data, selected, level, round]);
+
+  const navigate = useNavigate();
+  async function challenge() {
+    try {
+      const r = await api<{ code: string }>('/battles', { body: { packId, level, count: Math.max(5, Math.min(20, count || 10)), chunks: selected } });
+      navigate(`/battle/${r.code}`);
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
 
   function start(from = pool) {
     const picked = shuffle(from).slice(0, count || from.length);
@@ -152,6 +163,11 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
           <button className="btn primary big" onClick={() => start()} disabled={!pool.length}>
             {pool.length ? 'Start quiz' : 'No questions for these lessons'}
           </button>
+          {!mixed && packId && (
+            <button className="btn big" onClick={challenge} disabled={!pool.length}>
+              <Swords size={18} /> Challenge a friend to these questions
+            </button>
+          )}
         </div>
       )}
     </div>

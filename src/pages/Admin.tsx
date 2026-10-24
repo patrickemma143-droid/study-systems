@@ -362,6 +362,69 @@ export default function Admin() {
           Showing the 25 newest matches. Admins are set with ADMIN_EMAILS and always get Pro allowances.
         </p>
       </div>
+      <LibraryReports />
+    </div>
+  );
+}
+
+/** Library items students reported (copyright, wrong content…). Three reports hide an item until checked. */
+function LibraryReports() {
+  const [items, setItems] = useState<any[] | null>(null);
+  const load = () => {
+    api<{ items: any[] }>('/library/admin/reports')
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  async function setStatus(id: number, status: 'live' | 'hidden') {
+    await api(`/library/admin/${id}/status`, { body: { status } });
+    load();
+  }
+  async function remove(id: number) {
+    if (!confirm('Delete this item from the library for good?')) return;
+    await api(`/library/${id}`, { method: 'DELETE' });
+    load();
+  }
+  return (
+    <div className="sheet" style={{ marginTop: 18 }}>
+      <h2 style={{ fontSize: '1.15rem', marginTop: 0 }}>Library reports</h2>
+      {!items ? (
+        <p className="small muted">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="small muted">No reported library items.</p>
+      ) : (
+        <div className="stack">
+          {items.map((it) => (
+            <div key={it.id} className="row between" style={{ borderTop: '1px dashed var(--line)', paddingTop: 10, flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <a href={`/library/${it.id}`} target="_blank" rel="noreferrer">
+                  <strong>{it.title}</strong>
+                </a>{' '}
+                <span className="small muted">
+                  · {it.reports} report{it.reports === 1 ? '' : 's'} · {it.status} · by {it.ownerEmail}
+                </span>
+                <div className="small">{it.reasons.map((r: any) => `${r.reason}${r.detail ? `: ${r.detail}` : ''}`).join(' | ')}</div>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                {it.status === 'live' ? (
+                  <button className="btn small" onClick={() => setStatus(it.id, 'hidden')}>
+                    Hide
+                  </button>
+                ) : (
+                  <button className="btn small" onClick={() => setStatus(it.id, 'live')}>
+                    Restore
+                  </button>
+                )}
+                <button className="btn small ghost" onClick={() => remove(it.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
