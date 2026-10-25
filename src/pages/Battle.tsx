@@ -9,6 +9,9 @@ interface Side {
   name: string;
   score: number | 'played' | null;
   ms: number | null;
+  ready?: boolean;
+  answered?: number;
+  correct?: number;
 }
 interface BattleView {
   code: string;
@@ -23,6 +26,11 @@ interface BattleView {
   questions: Q[];
   review: { prompt: string; yours: string; right: string; ok: boolean; explanation: string }[];
   winner: 'creator' | 'opponent' | null;
+  live?: boolean;
+  startAt?: number | null;
+  serverNow?: number;
+  answered?: number;
+  secondsPerQuestion?: number;
 }
 
 const SECONDS = 20;
@@ -104,6 +112,7 @@ export default function Battle() {
 
   if (error) return <ErrorState message={error} action={<Link to="/home" className="btn">Home</Link>} />;
   if (!b) return <Loading />;
+  if (b.live && b.status !== 'done') return <LiveBattle initial={b} onDone={setB} />;
   const link = `${location.origin}/battle/${b.code}`;
   const share = `I challenge you to a ${b.level} quiz battle on “${b.title}” on Charis Study! ${link}`;
   const copy = () => navigator.clipboard?.writeText(link).then(() => toast('Link copied.'), () => toast(link));
@@ -263,6 +272,261 @@ export default function Battle() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A live battle: both players in the room, a countdown, then the same question for both at once. */
+function LiveBattle({ initial, onDone }: { initial: BattleView; onDone: (b: BattleView) => void }) {
+  const toast = useToast();
+  const [b, setB] = useState(initial);
+  const [offset, setOffset] = useState(() => (initial.serverNow || Date.now()) - Date.now());
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [idx, setIdx] = useState(initial.answered || 0);
+  const [typed, setTyped] = useState('');
+  const [feedback, setFeedback] = useState<{ ok: boolean; right: string } | null>(null);
+  const [qStart, setQStart] = useState<number | null>(null);
+  const busy = useRef(false);
+  const per = (b.secondsPerQuestion || SECONDS) * 1000;
+  const link = `${location.origin}/battle/${b.code}`;
+
+  const refresh = useCallback(async () => {
+    try {
+      const r = await api<BattleView>(`/battles/${b.code}`);
+      setOffset((r.serverNow || Date.now()) - Date.now());
+      if (r.status === 'done') onDone(r);
+      setB(r);
+    } catch {
+      /* try again on the next tick */
+    }
+  }, [b.code, onDone]);
+
+  // the room updates itself: who joined, who is ready, the other player's score
+  useEffect(() => {
+    const t = window.setInterval(refresh, b.startAt ? 1500 : 2000);
+    return () => window.clearInterval(t);
+  }, [refresh, b.startAt]);
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const serverNow = nowMs + offset;
+  const started = !!b.startAt && serverNow >= b.startAt;
+  const finishedMine = idx >= b.count;
+  const q = b.questions[idx];
+
+  // each question gets its own clock
+  useEffect(() => {
+    if (started && !finishedMine) setQStart(Date.now());
+  }, [started, idx, finishedMine]);
+
+  const send = useCallback(
+    async (answer: number | boolean | string | null) => {
+      if (busy.current || finishedMine) return;
+      busy.current = true;
+      try {
+        const r = await api<{ ok: boolean; right: string; battle: BattleView }>(`/battles/${b.code}/answer`, { body: { i: idx, answer } });
+        setFeedback({ ok: r.ok, right: r.right });
+        setB(r.battle);
+        window.setTimeout(() => {
+          setFeedback(null);
+          setTyped('');
+          setIdx((n) => n + 1);
+          busy.current = false;
+          if (r.battle.status === 'done') onDone(r.battle);
+        }, 900);
+      } catch (e: any) {
+        busy.current = false;
+        toast(e.message);
+        refresh();
+      }
+    },
+    [b.code, idx, finishedMine, onDone, refresh, toast],
+  );
+
+  const left = qStart == null ? per / 1000 : Math.max(0, Math.ceil((per - (nowMs - qStart)) / 1000));
+  useEffect(() => {
+    if (started && !finishedMine && !feedback && qStart != null && left <= 0) void send(null);
+  }, [left, started, finishedMine, feedback, qStart, send]);
+
+  async function join() {
+    try {
+      setB(await api<BattleView>(`/battles/${b.code}/join`, { body: {} }));
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
+  async function ready() {
+    try {
+      setB(await api<BattleView>(`/battles/${b.code}/ready`, { body: {} }));
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
+
+  const me = b.you;
+  const other = me === 'creator' ? b.opponent : b.creator;
+  const mine = me === 'creator' ? b.creator : b.opponent;
+  const bars = (
+    <div className="live-bars">
+      {[
+        { label: mine?.name ? `${mine.name} (you)` : 'You', s: mine },
+        { label: other?.name || 'Waiting…', s: other },
+      ].map(({ label, s }, i) => (
+        <div key={i} className="live-bar">
+          <div className="row between small">
+            <span>{label}</span>
+            <strong>
+              {s?.correct ?? 0} right · {s?.answered ?? 0}/{b.count}
+            </strong>
+          </div>
+          <div className="meter">
+            <span style={{ width: `${((s?.answered ?? 0) / b.count) * 100}%`, background: i ? 'var(--hl-orange)' : undefined }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // not in the room yet
+  if (!me) {
+    return (
+      <div style={{ maxWidth: 640, margin: '0 auto' }} className="stack">
+        <h1 className="row">
+          <Swords size={28} color="var(--biro)" /> Live quiz battle
+        </h1>
+        <p className="muted">
+          {b.creator.name} wants to battle you live: {b.count} {b.level} questions on “{b.title}”, {b.secondsPerQuestion || SECONDS} seconds each.
+        </p>
+        {b.opponent ? <div className="sheet">This battle already has two players.</div> : b.expired ? <div className="sheet">This battle has expired.</div> : (
+          <button className="btn primary big" onClick={join}>
+            <Swords size={18} /> Join the battle
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // the lobby
+  if (!b.startAt) {
+    return (
+      <div style={{ maxWidth: 720, margin: '0 auto' }} className="stack">
+        <h1 className="row">
+          <Swords size={28} color="var(--biro)" /> Live quiz battle
+        </h1>
+        <p className="muted">
+          {b.count} {b.level} questions on “{b.title}”. When you’re both ready, it starts for both of you at the same moment.
+        </p>
+        <div className="battle-board">
+          {(['creator', 'opponent'] as const).map((side) => {
+            const s = side === 'creator' ? b.creator : b.opponent;
+            return (
+              <div key={side} className={`sheet battle-side ${s?.ready ? 'won' : ''}`}>
+                <div className="small muted">{side === b.you ? 'You' : side === 'creator' ? 'Challenger' : 'Opponent'}</div>
+                <strong>{s ? s.name : 'Waiting for someone to join…'}</strong>
+                <div className="small" style={{ marginTop: 6 }}>
+                  {s ? (s.ready ? '✓ Ready' : 'Not ready yet') : ''}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {!b.opponent && (
+          <div className="sheet tight lib-banner">
+            <span className="small">Send this link to a classmate who is free now.</span>
+            <span className="row" style={{ gap: 6 }}>
+              <button className="btn small" onClick={() => navigator.clipboard?.writeText(link).then(() => toast('Link copied.'), () => toast(link))}>
+                <Copy size={15} /> Copy link
+              </button>
+              <a className="btn small primary" href={`https://wa.me/?text=${encodeURIComponent(`Live quiz battle on “${b.title}” — join me now on Charis Study: ${link}`)}`} target="_blank" rel="noreferrer">
+                <Share2 size={15} /> WhatsApp
+              </a>
+            </span>
+          </div>
+        )}
+        {mine && !mine.ready ? (
+          <button className="btn primary big" onClick={ready}>
+            I’m ready
+          </button>
+        ) : (
+          <div className="sheet small muted">You’re ready. {b.opponent ? `Waiting for ${other?.name}…` : 'Waiting for an opponent…'}</div>
+        )}
+      </div>
+    );
+  }
+
+  // countdown
+  if (!started) {
+    const n = Math.max(1, Math.ceil((b.startAt - serverNow) / 1000));
+    return (
+      <div style={{ maxWidth: 640, margin: '0 auto', textAlign: 'center' }} className="stack">
+        <h2>Get ready…</h2>
+        <div className="live-count">{n}</div>
+        {bars}
+      </div>
+    );
+  }
+
+  // finished my questions: watch the other player
+  if (finishedMine || !q) {
+    return (
+      <div style={{ maxWidth: 720, margin: '0 auto' }} className="stack">
+        <h2>You’re done!</h2>
+        <p className="muted">Waiting for {other?.name} to finish their last questions…</p>
+        {bars}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      {bars}
+      <div className="row between" style={{ margin: '12px 0 8px' }}>
+        <span className="small muted">
+          Question {idx + 1} of {b.count}
+        </span>
+        <span className={`chip ${left <= 5 ? 'exam' : ''}`}>
+          <Timer size={14} /> {left}s
+        </span>
+      </div>
+      <div className={`sheet stack ${feedback ? (feedback.ok ? 'live-ok' : 'live-bad') : ''}`}>
+        <h2 style={{ fontSize: '1.2rem', margin: 0 }}>{q.prompt}</h2>
+        {feedback ? (
+          <div className="row" style={{ gap: 8 }}>
+            {feedback.ok ? <CheckCircle2 size={22} color="var(--good)" /> : <XCircle size={22} color="var(--bad)" />}
+            <strong>{feedback.ok ? 'Correct!' : `Answer: ${feedback.right}`}</strong>
+          </div>
+        ) : q.type === 'mcq' ? (
+          <div className="stack">
+            {q.options!.map((o, i) => (
+              <button key={i} className="option" onClick={() => send(i)}>
+                <span className="letter">{'ABCD'[i]}</span> {o}
+              </button>
+            ))}
+          </div>
+        ) : q.type === 'tf' ? (
+          <div className="row">
+            <button className="btn big" onClick={() => send(true)}>
+              True
+            </button>
+            <button className="btn big" onClick={() => send(false)}>
+              False
+            </button>
+          </div>
+        ) : (
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send(typed.trim() || null);
+            }}
+          >
+            <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus aria-label="Your answer" style={{ flex: 1 }} />
+            <button className="btn primary">Next</button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

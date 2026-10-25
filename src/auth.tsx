@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api, type User } from './api';
 import { resetAiStatus } from './lib/ai';
 import { clearOfflineData } from './lib/offline';
+import { flushOutbox } from './lib/outbox';
 
 interface AuthState {
   user: User | null;
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    await flushOutbox().catch(() => 0); // send anything studied offline before leaving
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     await clearOfflineData();
     setUser(null);

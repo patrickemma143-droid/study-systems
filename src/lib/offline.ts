@@ -1,17 +1,10 @@
 // Offline study: download a pack to this phone, study flashcards without data, and send the
 // answers to the server when the connection comes back.
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../api';
+import { clearOutbox, flushOutbox, outboxCount } from './outbox';
 
-const QUEUE = 'cs-offline-reviews';
 const PACKS = 'cs-offline-packs';
 const DATA_CACHE = 'cs-data-v1';
-
-interface QueuedReview {
-  cardId: number;
-  body: Record<string, unknown>;
-  at: number;
-}
 
 const read = <T,>(key: string, fallback: T): T => {
   try {
@@ -28,46 +21,14 @@ const write = (key: string, value: unknown) => {
   }
 };
 
-export function queueReview(cardId: number, body: Record<string, unknown>) {
-  const q = read<QueuedReview[]>(QUEUE, []);
-  q.push({ cardId, body, at: Date.now() });
-  write(QUEUE, q.slice(-2000));
-  window.dispatchEvent(new Event('cs:queue'));
-}
-export const queuedCount = () => read<QueuedReview[]>(QUEUE, []).length;
-
-let flushing = false;
-/** Send answers saved while offline, oldest first. Stops at the first network failure. */
-export async function flushQueue(): Promise<number> {
-  if (flushing || !navigator.onLine) return 0;
-  flushing = true;
-  let sent = 0;
-  try {
-    let q = read<QueuedReview[]>(QUEUE, []);
-    while (q.length) {
-      const item = q[0];
-      try {
-        await api(`/study/cards/${item.cardId}/review`, { body: item.body });
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 0) break; // still offline
-        // anything else (card deleted, logged out…) can't be retried usefully
-      }
-      q = q.slice(1);
-      write(QUEUE, q);
-      sent++;
-    }
-  } finally {
-    flushing = false;
-    window.dispatchEvent(new Event('cs:queue'));
-  }
-  return sent;
-}
+export const queuedCount = outboxCount;
+export const flushQueue = flushOutbox;
 
 export function startOfflineSync() {
-  window.addEventListener('online', () => void flushQueue());
-  void flushQueue();
+  window.addEventListener('online', () => void flushOutbox());
+  void flushOutbox();
   window.setInterval(() => {
-    if (queuedCount()) void flushQueue();
+    if (outboxCount()) void flushOutbox();
   }, 60_000);
 }
 
@@ -112,9 +73,9 @@ export function forgetDownload(id: number) {
 
 /** Logging out removes this student's offline copies from the phone. */
 export async function clearOfflineData() {
+  clearOutbox();
   try {
     localStorage.removeItem(PACKS);
-    localStorage.removeItem(QUEUE);
   } catch {
     /* ignore */
   }

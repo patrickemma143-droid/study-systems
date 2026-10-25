@@ -144,8 +144,8 @@ Students can make an opt-in **public profile** (`/u/<name>`) with their universi
 - **Exam coach** (`/pack/:id/coach`): ranks lessons by how often they appear in the pack's past papers (years, marks, "due for a comeback"), combines that with weak spots (unstudied lessons, fading or forgotten cards, wrong quiz answers, low explanation scores) and builds a 10-card drill and a focused quiz.
 - **Answer marking**: write a full answer to any past-paper or mock-paper question and get it marked point by point against the marking key (instant, no AI) or by the AI examiner (uses the `feedback` allowance).
 - **Classes** (`/classes`): a course rep or lecturer creates a class with a join code/link (shareable on WhatsApp); shares packs and past papers; sets the exam date (copied to members' packs and timetables); class board; weekly class ranking; push notifications to members.
-- **Quiz battles** (`/battle/:code`): challenge a classmate to the same 5–20 questions; answers are marked on the server; most right wins, ties go to the faster player; Fast learner points for the winner.
-- **Offline**: "Save for offline" on a pack keeps its lessons and flashcards on the device; flashcard answers made offline are sent when the connection returns. The service worker fetches pages and data from the network first, so new versions still load straight away.
+- **Quiz battles** (`/battle/:code`): challenge a classmate to the same 5–20 questions, either **live** (both join, press ready, a countdown starts the same question for both, and each sees the other's score move) or **any time** (each plays when they open the link); answers are marked on the server; most right wins, ties go to the faster player; Fast learner points for the winner.
+- **Offline**: "Save for offline" on a pack keeps its lessons and flashcards on the device; flashcard answers, quiz results, lesson progress and study minutes made offline are kept on the phone and sent when the connection returns (and before logging out). The service worker fetches pages and data from the network first, so new versions still load straight away.
 
 ## AI helpers (optional)
 

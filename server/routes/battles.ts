@@ -1,5 +1,7 @@
 // Quiz battles: challenge a classmate to the same questions. Answers are marked here on the
 // server (the browser never sees the answers before playing), so results are fair.
+// Two kinds: a challenge (each player plays when they open the link) and a live battle
+// (both start together and see each other's score move after every question).
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -17,18 +19,22 @@ battlesRouter.use(requireAuth);
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from(crypto.randomBytes(7), (b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
 const WEEK = 7 * 86400_000;
+const LIVE_LOBBY = 2 * 3600_000; // a live battle waits two hours for its opponent
+export const SECONDS_PER_QUESTION = 20;
+const COUNTDOWN_MS = 4000;
 const WIN_POINTS: Record<Level, number> = { easy: 6, medium: 10, hard: 16 };
 
 type BattleQ = Extract<QuizQuestion, { type: 'mcq' | 'tf' | 'fill' }>;
+type Side = 'creator' | 'opponent';
+type Answer = number | boolean | string | null;
 
-/** What a player may see before answering: no answers. */
 function publicQuestion(q: BattleQ, i: number) {
   if (q.type === 'mcq') return { i, type: 'mcq' as const, prompt: q.prompt, options: q.options };
   if (q.type === 'tf') return { i, type: 'tf' as const, prompt: q.prompt };
   return { i, type: 'fill' as const, prompt: q.prompt };
 }
 function isRight(q: BattleQ, a: unknown): boolean {
-  if (q.type === 'mcq') return Number(a) === q.answer;
+  if (q.type === 'mcq') return Number(a) === q.answer && a !== null && a !== '';
   if (q.type === 'tf') return a === q.answer;
   return typeof a === 'string' && answerMatches(a, [q.answer, ...(q.accept || [])]);
 }
@@ -42,40 +48,108 @@ async function names(ids: (number | null)[]) {
   return new Map((rows as any[]).map((r) => [Number(r.id), String(r.name)]));
 }
 
+const answersOf = (b: any, side: Side) => parseJSON<Answer[] | null>(b[`${side}_answers`], null);
+const sideOf = (b: any, uid: number): Side | null => (b.creator_id === uid ? 'creator' : b.opponent_id === uid ? 'opponent' : null);
+function winnerOf(b: any): Side | null {
+  if (b.status !== 'done') return null;
+  if (b.creator_score === b.opponent_score) return Number(b.creator_ms) <= Number(b.opponent_ms) ? 'creator' : 'opponent';
+  return b.creator_score > b.opponent_score ? 'creator' : 'opponent';
+}
+
 function view(b: any, uid: number, who: Map<number, string>) {
   const qs = parseJSON<BattleQ[]>(b.questions, []) || [];
-  const me = b.creator_id === uid ? 'creator' : b.opponent_id === uid ? 'opponent' : null;
-  const myScore = me ? b[`${me}_score`] : null;
+  const me = sideOf(b, uid);
   const done = b.status === 'done';
-  const myAnswers = me ? parseJSON<unknown[] | null>(b[`${me}_answers`], null) : null;
+  const mine = me ? answersOf(b, me) : null;
+  const myScore = me ? b[`${me}_score`] : null;
+  const live = !!b.live;
+  const progress = (side: Side) => {
+    const a = answersOf(b, side) || [];
+    return { answered: a.length, correct: a.reduce((n: number, x, i) => n + (qs[i] && isRight(qs[i], x) ? 1 : 0), 0) };
+  };
+  const startAt = b.start_at == null ? null : Number(b.start_at);
+  // who may see the questions: a challenge shows them to a player who hasn't played yet; a live battle only once it has started
+  let questions: ReturnType<typeof publicQuestion>[] = [];
+  if (live) {
+    if (me && myScore == null && startAt && now() >= startAt - COUNTDOWN_MS) questions = qs.map(publicQuestion);
+  } else if ((me && myScore == null) || (!me && !b.opponent_id)) questions = qs.map(publicQuestion);
+  const side = (s: Side) => ({
+    name: who.get(b[`${s}_id`]) || 'Someone',
+    score: done || me === s ? b[`${s}_score`] : b[`${s}_score`] != null ? ('played' as const) : null,
+    ms: done ? b[`${s}_ms`] : null,
+    ready: !!b[`${s}_ready`],
+    ...(live ? progress(s) : {}),
+  });
   return {
     code: b.code,
     title: b.title,
     level: b.level,
     count: qs.length,
+    live,
     status: b.status,
     expired: Number(b.expires_at) < now() && !done,
     you: me,
-    creator: { name: who.get(b.creator_id) || 'Someone', score: done || me === 'creator' ? b.creator_score : b.creator_score != null ? 'played' : null, ms: done ? b.creator_ms : null },
-    opponent: b.opponent_id ? { name: who.get(b.opponent_id) || 'Someone', score: done || me === 'opponent' ? b.opponent_score : b.opponent_score != null ? 'played' : null, ms: done ? b.opponent_ms : null } : null,
-    // questions to play (only if you haven't played yet)
-    questions: me && myScore == null ? qs.map(publicQuestion) : me === null && !b.opponent_id ? qs.map(publicQuestion) : [],
-    // your marked answers after playing
-    review: myAnswers ? qs.map((q, i) => ({ prompt: q.prompt, yours: myAnswers[i] == null ? '—' : q.type === 'mcq' ? q.options[Number(myAnswers[i])] ?? '—' : String(myAnswers[i]), right: rightAnswer(q), ok: isRight(q, myAnswers[i]), explanation: q.explanation })) : [],
-    winner: done ? (b.creator_score === b.opponent_score ? (b.creator_ms <= b.opponent_ms ? 'creator' : 'opponent') : b.creator_score > b.opponent_score ? 'creator' : 'opponent') : null,
+    startAt,
+    serverNow: now(),
+    secondsPerQuestion: SECONDS_PER_QUESTION,
+    creator: side('creator'),
+    opponent: b.opponent_id ? side('opponent') : null,
+    questions,
+    answered: mine ? mine.length : 0,
+    review:
+      mine && (myScore != null || done)
+        ? qs.map((q, i) => ({ prompt: q.prompt, yours: mine[i] == null ? '—' : q.type === 'mcq' ? (q.options[Number(mine[i])] ?? '—') : String(mine[i]), right: rightAnswer(q), ok: isRight(q, mine[i]), explanation: q.explanation }))
+        : [],
+    winner: winnerOf(b),
   };
+}
+
+/** Both players have finished: mark it done, give points, tell the other player. */
+async function finish(b: any, by: number) {
+  const fresh = await db('battles').where({ id: b.id }).first();
+  if (fresh.creator_score == null || fresh.opponent_score == null || fresh.status === 'done') return fresh;
+  const changed = await db('battles').where({ id: b.id, status: 'open' }).update({ status: 'done' });
+  fresh.status = 'done';
+  if (!changed) return fresh;
+  const w = winnerOf(fresh)!;
+  const winnerId = fresh[`${w}_id`];
+  const loserId = fresh[`${w === 'creator' ? 'opponent' : 'creator'}_id`];
+  const lvl = fresh.level as Level;
+  await award(winnerId, 'fast', WIN_POINTS[lvl], `Won a ${lvl} quiz battle`, `battle-win-${fresh.id}`).catch(() => 0);
+  await award(loserId, 'fast', 2, 'Played a quiz battle', `battle-play-${fresh.id}`).catch(() => 0);
+  const who = await names([winnerId]);
+  const other = fresh.creator_id === by ? fresh.opponent_id : fresh.creator_id;
+  if (!fresh.live) sendToUser(other, { title: 'Quiz battle finished', body: `${who.get(winnerId)} won ${Math.max(fresh.creator_score, fresh.opponent_score)}–${Math.min(fresh.creator_score, fresh.opponent_score)}. See the result.`, url: `/battle/${fresh.code}` }).catch(() => 0);
+  return fresh;
+}
+
+/** A live battle whose time is up: unanswered questions count as wrong, and it ends. */
+async function settleIfOver(b: any) {
+  if (!b.live || b.status === 'done' || b.start_at == null) return b;
+  const qs = parseJSON<BattleQ[]>(b.questions, []) || [];
+  const end = Number(b.start_at) + qs.length * SECONDS_PER_QUESTION * 1000 + 15_000;
+  if (now() < end) return b;
+  for (const s of ['creator', 'opponent'] as Side[]) {
+    if (b[`${s}_score`] != null || !b[`${s}_id`]) continue;
+    const a = answersOf(b, s) || [];
+    const full = [...a, ...Array(Math.max(0, qs.length - a.length)).fill(null)];
+    await db('battles').where({ id: b.id }).update({ [`${s}_answers`]: JSON.stringify(full), [`${s}_score`]: full.reduce((n: number, x, i) => n + (isRight(qs[i], x) ? 1 : 0), 0), [`${s}_ms`]: end - Number(b.start_at) });
+  }
+  return finish(b, b.creator_id);
 }
 
 battlesRouter.get('/', async (_req, res) => {
   const uid = userId(res);
   const rows = await db('battles').where((w) => w.where('creator_id', uid).orWhere('opponent_id', uid)).orderBy('created_at', 'desc').limit(20);
   const who = await names((rows as any[]).flatMap((b) => [b.creator_id, b.opponent_id]));
-  res.json({ battles: (rows as any[]).map((b) => { const v = view(b, uid, who); return { ...v, questions: [], review: [] }; }) });
+  res.json({ battles: (rows as any[]).map((b) => ({ ...view(b, uid, who), questions: [], review: [] })) });
 });
 
 battlesRouter.post('/', async (req, res) => {
   const uid = userId(res);
-  const b = z.object({ packId: z.number().int(), level: z.enum(['easy', 'medium', 'hard']).default('medium'), count: z.number().int().min(5).max(20).default(10), chunks: z.array(z.number().int()).max(80).optional() }).parse(req.body);
+  const b = z
+    .object({ packId: z.number().int(), level: z.enum(['easy', 'medium', 'hard']).default('medium'), count: z.number().int().min(5).max(20).default(10), chunks: z.array(z.number().int()).max(80).optional(), live: z.boolean().optional() })
+    .parse(req.body);
   const row = await db('packs').where({ id: b.packId, user_id: uid }).first('title', 'data');
   if (!row) throw new HttpError(404, 'Study pack not found.');
   const pack = parseJSON<StudyPack | null>(row.data, null);
@@ -88,26 +162,88 @@ battlesRouter.post('/', async (req, res) => {
   let code = newCode();
   while (await db('battles').where({ code }).first('id')) code = newCode();
   const t = now();
-  await db('battles').insert({ code, creator_id: uid, title: String(row.title).slice(0, 200), level: b.level, questions: JSON.stringify(qs), created_at: t, expires_at: t + WEEK });
+  await db('battles').insert({ code, creator_id: uid, title: String(row.title).slice(0, 200), level: b.level, questions: JSON.stringify(qs), live: !!b.live, creator_ready: false, created_at: t, expires_at: t + (b.live ? LIVE_LOBBY : WEEK) });
   res.status(201).json({ code });
 });
 
+async function load(code: string) {
+  const b = await db('battles').where({ code: String(code).toUpperCase() }).first();
+  if (!b) throw new HttpError(404, 'This battle doesn’t exist.');
+  return b;
+}
+
 battlesRouter.get('/:code', async (req, res) => {
   const uid = userId(res);
-  const b = await db('battles').where({ code: String(req.params.code).toUpperCase() }).first();
-  if (!b) throw new HttpError(404, 'This battle doesn’t exist.');
+  const b = await settleIfOver(await load(req.params.code));
   const who = await names([b.creator_id, b.opponent_id]);
   res.json(view(b, uid, who));
 });
 
-/** Submit your answers. The first other person to submit becomes the opponent. */
+/** Live battles: take the empty seat. */
+battlesRouter.post('/:code/join', async (req, res) => {
+  const uid = userId(res);
+  const b = await load(req.params.code);
+  if (!b.live) throw new HttpError(400, 'This is not a live battle.');
+  if (Number(b.expires_at) < now() && !b.start_at) throw new HttpError(410, 'This battle has expired. Start a new one.');
+  if (b.creator_id !== uid && b.opponent_id !== uid) {
+    if (b.opponent_id) throw new HttpError(409, 'This battle already has two players.');
+    const claimed = await db('battles').where({ id: b.id }).whereNull('opponent_id').update({ opponent_id: uid });
+    if (!claimed) throw new HttpError(409, 'Someone else took this battle first. Start your own!');
+    sendToUser(b.creator_id, { title: 'Your live battle has an opponent', body: `Open it now and press “I’m ready”.`, url: `/battle/${b.code}` }).catch(() => 0);
+  }
+  const fresh = await load(req.params.code);
+  res.json(view(fresh, uid, await names([fresh.creator_id, fresh.opponent_id])));
+});
+
+/** Live battles: when both players are ready, a short countdown starts the battle for both. */
+battlesRouter.post('/:code/ready', async (req, res) => {
+  const uid = userId(res);
+  const b = await load(req.params.code);
+  const side = sideOf(b, uid);
+  if (!b.live || !side) throw new HttpError(400, 'You are not in this live battle.');
+  if (!b.start_at) {
+    await db('battles').where({ id: b.id }).update({ [`${side}_ready`]: true });
+    const fresh = await load(req.params.code);
+    if (fresh.creator_ready && fresh.opponent_ready && fresh.opponent_id) await db('battles').where({ id: b.id }).whereNull('start_at').update({ start_at: now() + COUNTDOWN_MS });
+  }
+  const fresh = await load(req.params.code);
+  res.json(view(fresh, uid, await names([fresh.creator_id, fresh.opponent_id])));
+});
+
+/** Live battles: answer one question; marked straight away. */
+battlesRouter.post('/:code/answer', async (req, res) => {
+  const uid = userId(res);
+  const body = z.object({ i: z.number().int().min(0).max(19), answer: z.union([z.number(), z.boolean(), z.string().max(200), z.null()]) }).parse(req.body);
+  let b = await load(req.params.code);
+  const side = sideOf(b, uid);
+  if (!b.live || !side) throw new HttpError(400, 'You are not in this live battle.');
+  if (!b.start_at || now() < Number(b.start_at)) throw new HttpError(409, 'The battle hasn’t started yet.');
+  b = await settleIfOver(b);
+  if (b.status === 'done' || b[`${side}_score`] != null) throw new HttpError(409, 'You have finished this battle.');
+  const qs = parseJSON<BattleQ[]>(b.questions, []) || [];
+  const mine = answersOf(b, side) || [];
+  if (body.i !== mine.length) throw new HttpError(409, 'Answer the questions in order.');
+  const q = qs[body.i];
+  const next = [...mine, body.answer];
+  const patch: Record<string, unknown> = { [`${side}_answers`]: JSON.stringify(next) };
+  if (next.length >= qs.length) {
+    patch[`${side}_score`] = next.reduce((n: number, x, i) => n + (isRight(qs[i], x) ? 1 : 0), 0);
+    patch[`${side}_ms`] = now() - Number(b.start_at);
+  }
+  await db('battles').where({ id: b.id }).update(patch);
+  let fresh = await load(req.params.code);
+  if (next.length >= qs.length) fresh = await finish(fresh, uid);
+  res.json({ ok: isRight(q, body.answer), right: rightAnswer(q), explanation: q.explanation, battle: view(fresh, uid, await names([fresh.creator_id, fresh.opponent_id])) });
+});
+
+/** Challenges: submit all your answers at once. The first other person to submit becomes the opponent. */
 battlesRouter.post('/:code/play', async (req, res) => {
   const uid = userId(res);
   const body = z.object({ answers: z.array(z.union([z.number(), z.boolean(), z.string().max(200), z.null()])).max(20), ms: z.number().int().min(0).max(3_600_000) }).parse(req.body);
-  const b = await db('battles').where({ code: String(req.params.code).toUpperCase() }).first();
-  if (!b) throw new HttpError(404, 'This battle doesn’t exist.');
+  const b = await load(req.params.code);
+  if (b.live) throw new HttpError(400, 'This is a live battle: join it and press ready.');
   if (Number(b.expires_at) < now() && b.status !== 'done') throw new HttpError(410, 'This battle has expired. Start a new one.');
-  let side: 'creator' | 'opponent';
+  let side: Side;
   if (b.creator_id === uid) side = 'creator';
   else if (b.opponent_id === uid) side = 'opponent';
   else if (!b.opponent_id) {
@@ -121,23 +257,11 @@ battlesRouter.post('/:code/play', async (req, res) => {
   // a whole battle can't honestly be answered in under a second per question
   const ms = Math.max(body.ms, qs.length * 1000);
   await db('battles').where({ id: b.id }).update({ [`${side}_score`]: score, [`${side}_ms`]: ms, [`${side}_answers`]: JSON.stringify(body.answers.slice(0, qs.length)) });
-  const fresh = await db('battles').where({ id: b.id }).first();
-  if (fresh.creator_score != null && fresh.opponent_score != null && fresh.status !== 'done') {
-    await db('battles').where({ id: b.id }).update({ status: 'done' });
-    fresh.status = 'done';
-    const who = await names([fresh.creator_id, fresh.opponent_id]);
-    const v = view(fresh, uid, who);
-    const winnerId = v.winner === 'creator' ? fresh.creator_id : fresh.opponent_id;
-    const loserId = v.winner === 'creator' ? fresh.opponent_id : fresh.creator_id;
-    const lvl = fresh.level as Level;
-    await award(winnerId, 'fast', WIN_POINTS[lvl], `Won a ${lvl} quiz battle`, `battle-win-${fresh.id}`).catch(() => 0);
-    await award(loserId, 'fast', 2, 'Played a quiz battle', `battle-play-${fresh.id}`).catch(() => 0);
-    const other = side === 'creator' ? fresh.opponent_id : fresh.creator_id;
-    sendToUser(other, { title: 'Quiz battle finished', body: `${who.get(winnerId)} won ${Math.max(fresh.creator_score, fresh.opponent_score)}–${Math.min(fresh.creator_score, fresh.opponent_score)}. See the result.`, url: `/battle/${fresh.code}` }).catch(() => 0);
-  } else if (side === 'opponent') {
+  let fresh = await load(req.params.code);
+  if (fresh.creator_score != null && fresh.opponent_score != null) fresh = await finish(fresh, uid);
+  else if (side === 'opponent') {
     const who = await names([uid]);
     sendToUser(fresh.creator_id, { title: 'Your quiz battle was accepted', body: `${who.get(uid)} played your battle on “${fresh.title}”. Your turn if you haven’t played.`, url: `/battle/${fresh.code}` }).catch(() => 0);
   }
-  const who = await names([fresh.creator_id, fresh.opponent_id]);
-  res.json(view(fresh, uid, who));
+  res.json(view(fresh, uid, await names([fresh.creator_id, fresh.opponent_id])));
 });

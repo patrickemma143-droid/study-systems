@@ -1,4 +1,5 @@
 import type { StudyPack, QuizQuestion } from '@shared/engine/types';
+import { canDefer, deferredReply, enqueue } from './lib/outbox';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -17,6 +18,12 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       keepalive: opts.keepalive,
     });
   } catch {
+    const method = opts.method || (opts.body !== undefined ? 'POST' : 'GET');
+    // study work done offline is kept and sent later, so the student can carry on
+    if (canDefer(path, method)) {
+      enqueue(path, method, opts.body);
+      return deferredReply(path, opts.body) as T;
+    }
     throw new ApiError(0, 'You seem to be offline. Check your connection and try again.');
   }
   const data = await res.json().catch(() => ({}));

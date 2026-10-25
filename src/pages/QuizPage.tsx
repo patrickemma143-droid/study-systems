@@ -42,9 +42,9 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
   }, [data, selected, level, round]);
 
   const navigate = useNavigate();
-  async function challenge() {
+  async function challenge(live = false) {
     try {
-      const r = await api<{ code: string }>('/battles', { body: { packId, level, count: Math.max(5, Math.min(20, count || 10)), chunks: selected } });
+      const r = await api<{ code: string }>('/battles', { body: { packId, level, count: Math.max(5, Math.min(20, count || 10)), chunks: selected, live } });
       navigate(`/battle/${r.code}`);
     } catch (e: any) {
       toast(e.message);
@@ -164,9 +164,14 @@ export default function QuizPage({ mixed = false }: { mixed?: boolean }) {
             {pool.length ? 'Start quiz' : 'No questions for these lessons'}
           </button>
           {!mixed && packId && (
-            <button className="btn big" onClick={challenge} disabled={!pool.length}>
-              <Swords size={18} /> Challenge a friend to these questions
-            </button>
+            <div className="grid cols-2" style={{ gap: 10 }}>
+              <button className="btn big" onClick={() => challenge(true)} disabled={!pool.length}>
+                <Swords size={18} /> Live battle with a friend now
+              </button>
+              <button className="btn big" onClick={() => challenge(false)} disabled={!pool.length}>
+                <Swords size={18} /> Challenge a friend (play any time)
+              </button>
+            </div>
           )}
         </div>
       )}

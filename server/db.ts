@@ -482,6 +482,20 @@ migrations['009_battles'] = {
   },
 };
 
+migrations['010_live_battles'] = {
+  async up(k) {
+    // Live battles: both players start together and see each other's progress
+    const add = async (col: string, build: (t: Knex.AlterTableBuilder) => void) => {
+      if (!(await k.schema.hasColumn('battles', col))) await k.schema.alterTable('battles', build);
+    };
+    await add('live', (t) => t.boolean('live').notNullable().defaultTo(false));
+    await add('start_at', (t) => t.bigInteger('start_at'));
+    await add('creator_ready', (t) => t.boolean('creator_ready').notNullable().defaultTo(false));
+    await add('opponent_ready', (t) => t.boolean('opponent_ready').notNullable().defaultTo(false));
+  },
+  async down() {},
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

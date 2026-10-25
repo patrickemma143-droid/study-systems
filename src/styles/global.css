@@ -1806,3 +1806,8 @@ label.btn {
 .battle-score { font-size: 2.2rem; font-weight: 700; color: var(--biro); margin: 6px 0 2px; }
 .offline-bar { background: var(--hl-yellow); color: var(--hl-ink); text-align: center; font-size: .85rem; padding: 6px 12px; font-weight: 500; }
 .nav a svg, .brand > *:first-child { flex: none; }
+.live-bars { display: grid; gap: 8px; }
+.live-bar .meter { margin-top: 4px; }
+.live-count { font-size: 5rem; font-weight: 700; color: var(--biro); line-height: 1; }
+.live-ok { border: 2px solid var(--good); }
+.live-bad { border: 2px solid var(--bad); }
