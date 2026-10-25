@@ -12,6 +12,7 @@ interface Home {
   popular: LibItem[];
   fresh: LibItem[];
   total: number;
+  books?: { title: string; faculty: string; chapters: number }[];
 }
 interface Results {
   items: LibItem[];
@@ -134,12 +135,34 @@ export default function Library() {
                       <Icon size={22} />
                     </span>
                     <span className="fac-name">{f.label}</span>
-                    <span className="small muted">{n ? [f.packs && `${f.packs} notes`, f.books && `${f.books} book${f.books === 1 ? '' : 's'}`, f.papers && `${f.papers} past paper${f.papers === 1 ? '' : 's'}`].filter(Boolean).join(' · ') : 'Be the first to share'}</span>
+                    <span className="small muted">{n ? [f.packs && `${f.packs} notes`, f.books && `${f.books} book chapter${f.books === 1 ? '' : 's'}`, f.papers && `${f.papers} past paper${f.papers === 1 ? '' : 's'}`].filter(Boolean).join(' · ') : 'Be the first to share'}</span>
                   </button>
                 );
               })}
             </div>
           </section>
+          {home.books && home.books.length > 0 && (
+            <section className="section">
+              <div className="section-head">
+                <h2>Open textbooks</h2>
+                <span className="small muted">Free to study, every chapter ready as lessons, flashcards and quizzes</span>
+              </div>
+              <div className="shelf">
+                {home.books.map((bk) => {
+                  const Icon = FACULTY_ICON[bk.faculty] || FACULTY_ICON.other;
+                  return (
+                    <Link key={bk.title} to={`/library?q=${encodeURIComponent(bk.title)}&type=book`} className="shelf-book" style={{ borderTopColor: FACULTY_TINT[bk.faculty] }}>
+                      <Icon size={18} />
+                      <strong>{bk.title}</strong>
+                      <span className="small muted">
+                        {bk.chapters} chapters · {facultyById(bk.faculty).short}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          )}
           {home.popular.length > 0 && (
             <section className="section">
               <div className="section-head">

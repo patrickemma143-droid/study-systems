@@ -1811,3 +1811,7 @@ label.btn {
 .live-count { font-size: 5rem; font-weight: 700; color: var(--biro); line-height: 1; }
 .live-ok { border: 2px solid var(--good); }
 .live-bad { border: 2px solid var(--bad); }
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.shelf-book { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-top: 6px solid var(--hl-blue); border-radius: 12px; color: var(--ink); text-decoration: none; min-height: 110px; }
+.shelf-book:hover { border-color: var(--biro); }
+.shelf-book svg { color: var(--ink-2); }

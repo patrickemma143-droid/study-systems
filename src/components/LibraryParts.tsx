@@ -81,7 +81,7 @@ export function ItemCard({ item }: { item: LibItem }) {
       </div>
       <div className="lib-title">{item.title}</div>
       <div className="lib-meta">
-        {[item.courseCode, item.university].filter(Boolean).join(' · ') || facultyById(item.faculty).short}
+        {[item.courseCode || item.courseName, item.university].filter(Boolean).join(' · ') || facultyById(item.faculty).short}
       </div>
       <div className="lib-stats">
         <span>

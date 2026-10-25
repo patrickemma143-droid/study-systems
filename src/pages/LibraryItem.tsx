@@ -323,7 +323,7 @@ export default function LibraryItem() {
       {d.related.length > 0 && (
         <section className="section">
           <div className="section-head">
-            <h2>More for {item.courseCode}</h2>
+            <h2>More for {item.courseCode || item.courseName}</h2>
           </div>
           <div className="lib-grid">
             {d.related.map((it) => (

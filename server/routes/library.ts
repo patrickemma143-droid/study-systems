@@ -16,7 +16,7 @@ import { FACULTIES, guessCourseCode, guessYear, normaliseForHash, suggestFaculty
 export const libraryRouter = Router();
 libraryRouter.use(requireAuth);
 
-const hashOf = (text: string) => crypto.createHash('sha256').update(normaliseForHash(text)).digest('hex');
+export const hashOf = (text: string) => crypto.createHash('sha256').update(normaliseForHash(text)).digest('hex');
 const facultyIds = FACULTIES.map((f) => f.id) as [string, ...string[]];
 const REPORTS_TO_HIDE = 3;
 
@@ -95,7 +95,8 @@ libraryRouter.get('/', async (req, res) => {
   const total = Number(((await query.clone().count({ n: '*' }).first()) as any)?.n || 0);
   if (q.sort === 'new') query = query.orderBy('li.created_at', 'desc');
   else if (q.sort === 'rated') query = query.orderByRaw('CASE WHEN li.rating_count = 0 THEN 0 ELSE li.rating_sum * 1.0 / li.rating_count END DESC').orderBy('li.uses', 'desc');
-  else query = query.orderBy('li.uses', 'desc').orderBy('li.created_at', 'desc');
+  // most used first; among equals, past papers first and then each book's chapters in order
+  else query = query.orderBy('li.uses', 'desc').orderByRaw("CASE WHEN li.item_type = 'paper' THEN 0 ELSE 1 END").orderBy('li.course_name', 'asc').orderBy('li.created_at', 'asc');
   const rows = await query.select(SUMMARY_COLS).limit(per).offset((q.page - 1) * per);
   res.json({ items: rows.map(summary), total, page: q.page, pages: Math.max(1, Math.ceil(total / per)) });
 });
@@ -112,7 +113,9 @@ libraryRouter.get('/home', async (_req, res) => {
   const popular = await base().orderBy('li.uses', 'desc').orderBy('li.created_at', 'desc').limit(8);
   const fresh = await base().orderBy('li.created_at', 'desc').limit(8);
   const total = (counts as any[]).reduce((n, c) => n + Number(c.n), 0);
-  res.json({ faculties, popular: popular.map(summary), fresh: fresh.map(summary), total });
+  // the bookshelf: each textbook with how many chapters are ready to study
+  const books = await db('library_items').where({ status: 'live', item_type: 'book' }).whereNotNull('course_name').groupBy('course_name', 'faculty').select('course_name', 'faculty').count({ n: '*' }).orderBy('faculty');
+  res.json({ faculties, popular: popular.map(summary), fresh: fresh.map(summary), total, books: (books as any[]).map((b) => ({ title: b.course_name, faculty: b.faculty, chapters: Number(b.n) })) });
 });
 
 /** Things this student shared. */
@@ -318,16 +321,20 @@ libraryRouter.get('/:id', async (req, res) => {
       hasKey: !!data.keyText,
     };
   }
-  const related = r.course_code
-    ? await db('library_items as li')
-        .join('users as u', 'u.id', 'li.owner_id')
-        .where({ 'li.course_code': r.course_code, 'li.status': 'live' })
-        .whereNot('li.id', r.id)
-        .orderByRaw("CASE WHEN li.item_type = 'paper' THEN 0 ELSE 1 END")
-        .orderBy('li.year', 'desc')
-        .limit(12)
-        .select(SUMMARY_COLS)
-    : [];
+  // the same course (by code), or the other chapters of the same book
+  const related =
+    r.course_code || r.course_name
+      ? await db('library_items as li')
+          .join('users as u', 'u.id', 'li.owner_id')
+          .where('li.status', 'live')
+          .where((b) => (r.course_code ? b.where('li.course_code', r.course_code) : b.where('li.course_name', r.course_name)))
+          .whereNot('li.id', r.id)
+          .orderByRaw("CASE WHEN li.item_type = 'paper' THEN 0 ELSE 1 END")
+          .orderBy('li.year', 'desc')
+          .orderBy('li.created_at', 'asc')
+          .limit(r.course_code ? 12 : 40)
+          .select(SUMMARY_COLS)
+      : [];
   const mine = await db('library_ratings').where({ item_id: r.id, user_id: uid }).first('stars');
   const reported = await db('library_reports').where({ item_id: r.id, user_id: uid }).first('id');
   const myPacks = r.kind === 'pack' ? await db('packs').where({ user_id: uid, library_item_id: r.id }).select('id') : [];

@@ -9,6 +9,8 @@ const BAD_TERM_WORDS = /\b(?:this|that|these|those|it|its|our|we|you|they|their|
 function cleanTerm(raw: string): string | null {
   let t = trimEndPunct(raw.replace(/^[\s"“'‘(]+|[\s"”'’)]+$/g, ''));
   t = t.replace(/^(?:a|an|the)\s+/i, '').trim();
+  // "intracellular fluid (ICF" lost its closing bracket in the trim above
+  if ((t.match(/\(/g) || []).length > (t.match(/\)/g) || []).length) t += ')';
   if (!t) return null;
   const wc = wordCount(t);
   if (wc === 0 || wc > 6) return null;
@@ -66,12 +68,18 @@ export function findDefinitions(chunkParts: BodyPart[][]): Definition[] {
 
       // "Term: definition" / "Term – definition" (glossaries, bullet points)
       const g = comparing ? null : text.match(glossary);
-      if (g && wordCount(g[1]) <= 5 && wordCount(g[2]) >= 4 && !/^(?:note|example|e\.g|i\.e|source|see|figure|table|step \d)/i.test(g[1])) {
+      if (g && wordCount(g[1]) <= 5 && wordCount(g[2]) >= 4 && !/^(?:note|example|e\.g|i\.e|source|see|figure|table|step \d|worked example|(?:learning |lesson |course )?(?:objectives?|outcomes?|aims?))/i.test(g[1])) {
         add(g[1], splitSentences(g[2])[0] || g[2], chunk, 3);
       }
 
       for (const s of splitSentences(text)) {
         if (s.endsWith('?') || wordCount(s) > 70) continue;
+        // "Economists use the term demand to refer to the amount…"
+        const usesTerm = s.match(/\b(?:use|uses|used)\s+the\s+(?:term|word)\s+["“]?([^"”,]{2,40}?)["”]?\s+to\s+(?:refer to|mean|describe|denote)\s+(.+)$/i);
+        if (usesTerm) {
+          add(usesTerm[1], usesTerm[2], chunk, 4);
+          continue;
+        }
         let m = s.match(strong);
         if (m) {
           const term = m[2] && /^[A-Z]{2,8}$/.test(m[2]) ? `${trimEndPunct(m[1])} (${m[2]})` : m[1];

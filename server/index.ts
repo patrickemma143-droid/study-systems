@@ -20,6 +20,7 @@ import { libraryRouter } from './routes/library';
 import { coachRouter } from './routes/coach';
 import { classesRouter } from './routes/classes';
 import { battlesRouter } from './routes/battles';
+import { seedLibrary } from './seed/library';
 import { publicRouter } from './public';
 import { startReminders } from './notify';
 
@@ -166,6 +167,8 @@ async function connectDatabase(attempt = 1): Promise<void> {
     startReminders();
     checkAi();
     console.log('  Database ready.');
+    // fill the shared library with open textbooks and practice papers (once, in the background)
+    seedLibrary().catch((err) => console.error('Library seed failed:', err?.message || err));
   } catch (err) {
     dbState.error = safeMessage(err);
     console.error(`Could not set up the database (attempt ${attempt}): ${dbState.error}`);
