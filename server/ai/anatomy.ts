@@ -7,10 +7,12 @@ export interface AnatomyContext {
   system: string;
   latin: string | null;
   description: string | null;
+  /** for a landmark: the bone it is part of ("Greater trochanter" of the "Femur") */
+  partOf?: string | null;
 }
 
 function block(c: AnatomyContext) {
-  return `STRUCTURE: ${c.name}${c.latin ? ` (Latin: ${c.latin})` : ''}
+  return `STRUCTURE: ${c.name}${c.latin ? ` (Latin: ${c.latin})` : ''}${c.partOf ? `\nPART OF: ${c.partOf} (this is a named feature/landmark of that bone; describe it as such)` : ''}
 BODY SYSTEM: ${c.system || 'unknown'}
 ${c.description ? `REFERENCE TEXT (from the 3D atlas, based on Wikipedia):\n<<<\n${c.description.slice(0, 3500)}\n>>>` : 'There is no reference text for this structure.'}`;
 }

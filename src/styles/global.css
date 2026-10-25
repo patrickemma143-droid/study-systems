@@ -1866,3 +1866,48 @@ label.btn {
 .topbar-inner > .nav::-webkit-scrollbar { display: none; }
 .topbar-inner > .btn, .topbar-inner > a.btn, .topbar-inner .btn svg { flex-shrink: 0; }
 .topbar-inner > div:not(.spacer) { flex-shrink: 0; }
+
+/* Anatomy: dismantle, study mode, labelled parts */
+.anat-canvas.moving { cursor: move; }
+.anat-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.anat-bottom > * { pointer-events: auto; }
+.anat-bottom .anat-slider, .anat-bottom .anat-quizbar.static { position: static; }
+.anat-bottom .anat-hint { position: static; transform: none; align-self: center; white-space: normal; text-align: center; max-width: 100%; }
+.anat-label button { pointer-events: auto; margin-left: 8px; border: 0; background: var(--biro); color: #fff; border-radius: 6px; padding: 2px 8px; font: inherit; font-size: .78rem; cursor: pointer; }
+.anat-label { pointer-events: none; }
+.anat-studybar { position: absolute; top: 12px; left: 12px; right: 64px; max-width: 440px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.95); border-radius: 12px; padding: 6px 12px 6px 6px; box-shadow: 0 4px 18px rgba(0,0,0,.25); color: var(--ink); }
+.anat-studybar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anat-lines { position: absolute; inset: 0; pointer-events: none; }
+.anat-lines line { stroke: rgba(255,255,255,.55); stroke-width: 1; }
+.anat-lines line.sel { stroke: #7fa6ff; stroke-width: 2; }
+.anat-pin { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--hl-yellow); border: 2px solid #1b2440; padding: 0; cursor: pointer; z-index: 2; }
+.anat-pin::before { content: ''; position: absolute; inset: -9px; border-radius: 50%; }
+.anat-pin.back { width: 8px; height: 8px; margin: -4px 0 0 -4px; opacity: .35; border-width: 1px; }
+.anat-pin.sel { width: 16px; height: 16px; margin: -8px 0 0 -8px; background: var(--biro); border-color: #fff; opacity: 1; z-index: 3; }
+.anat-pin.target { width: 18px; height: 18px; margin: -9px 0 0 -9px; background: #ff4d4d; border-color: #fff; opacity: 1; animation: anat-pulse 1.1s ease-in-out infinite; }
+@keyframes anat-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,77,.7); } 50% { box-shadow: 0 0 0 10px rgba(255,77,77,0); } }
+.anat-plabel { position: absolute; transform: translateY(-50%); font: inherit; font-size: .72rem; line-height: 1.2; color: #fff; background: rgba(14,20,36,.82); border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 2px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; text-align: left; z-index: 2; }
+.anat-plabel.l { text-align: right; }
+.anat-plabel.sel { background: var(--biro); border-color: #fff; font-weight: 600; }
+.anat-views { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.anat-views button { background: rgba(255,255,255,.92); border: 0; border-radius: 999px; padding: 7px 13px; font: inherit; font-size: .8rem; cursor: pointer; color: var(--ink); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.anat-views button:active { background: var(--biro); color: #fff; }
+.anat-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.anat-partlist { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; max-height: 240px; overflow: auto; }
+.anat-partlist button { text-align: left; border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .8rem; cursor: pointer; color: var(--ink); line-height: 1.25; }
+.anat-partlist button[aria-pressed='true'] { border-color: var(--biro); background: var(--biro-soft); font-weight: 600; }
+@media (max-width: 760px) {
+  .anat-plabel { font-size: .66rem; padding: 2px 5px; }
+  .anat-views button { padding: 6px 10px; font-size: .74rem; }
+}
+.anat-lines line.back { stroke-dasharray: 3 3; stroke: rgba(255,255,255,.3); }
+.anat-plabel.back { opacity: .5; }
+.anat-plabel.back.sel { opacity: 1; }
+@media (max-width: 760px) {
+  .anat-views { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; gap: 5px; scrollbar-width: none; }
+  .anat-views button { flex: none; padding: 6px 9px; }
+  .anat-bottom .anat-quizbar.static { padding: 8px 10px; }
+  .anat-options { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .anat-options .chip { font-size: .72rem; padding: 5px 7px; text-align: left; white-space: normal; line-height: 1.2; }
+  .anat-bottom .anat-hint { font-size: .74rem; padding: 4px 10px; }
+}

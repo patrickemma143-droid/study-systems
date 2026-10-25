@@ -154,6 +154,13 @@ A 3D human body atlas that runs in the browser, phones included. It loads one bo
 
 - **Systems**: skeleton, muscles, muscle insertions, joints and ligaments, heart and vessels, lymphoid organs, nervous system and sense organs, viscera. Each is a Draco-compressed GLB in `public/anatomy/` (about 22 MB in total; the skeleton is 3.7 MB). They are cached for 7 days and kept for offline use.
 - **Explore**: rotate, zoom, tap any part to name it, search 3,600 modelled parts (about 1,700 named structures) plus 1,500 landmarks, filter by region, and see bone landmarks as labelled dots. Tools include X-ray, section planes (top, side, front), dissect (tap to peel layers, then undo), deep muscles only, isolate, hide and show all.
+- **Dismantle**: one button pulls the loaded systems apart, so every bone or organ stands on its own (a slider sets how far). With Move switched on, any piece can be dragged out. Tap a piece, then **Study**; Reassemble puts everything back.
+- **Study one structure** ("Study this bone", the Study button on the label, or double-tap):
+  - Only that structure is shown, and it turns around its own centre when dragged. There are also Front / Back / Lateral / Medial / Top / Bottom views and a slow spin.
+  - Every named part of a bone (e.g. 27 on the femur: head, neck, greater and lesser trochanters, linea aspera, condyles, epicondyles…) is pinned on it, with atlas-style labels in two columns joined by leader lines. Parts on the far side are dimmed.
+  - Students can show all labels, only the one they tap, or **Test me**: a red pin with four names to choose from.
+  - Tapping a part turns the bone to face it and opens its Latin name, description and AI card. The AI is told which bone the part belongs to.
+  - The landmarks come from Z-Anatomy's label lines: the end that touches a bone surface is the landmark. Each landmark is matched to the bone whose surface it sits on, so at a joint it goes to the right bone. Mirror images supply the other side. `scripts/anatomy-landmarks.py` re-exports them.
 - **AI tutor**:
   - Every structure gets an AI study card (summary, origin/insertion/action/nerve/blood supply, clinical notes, mnemonic, exam tips, quiz). Cards are cached and shared by all students.
   - Students can chat about the structure.

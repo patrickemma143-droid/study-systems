@@ -94,12 +94,12 @@ function friendly(err: unknown): never {
 anatomyRouter.post('/ai/card', async (req, res) => {
   requireAi();
   const uid = userId(res);
-  const b = z.object({ name: z.string().trim().min(2).max(200), system: z.string().max(20).optional(), peek: z.boolean().optional() }).parse(req.body);
+  const b = z.object({ name: z.string().trim().min(2).max(200), system: z.string().max(20).optional(), of: z.string().trim().max(200).optional(), peek: z.boolean().optional() }).parse(req.body);
   const d = data();
   const key = b.name.toLowerCase();
-  const ctx = { name: b.name, system: b.system || '', latin: d.latin[key] || null, description: d.descriptions[key] || null };
+  const ctx = { name: b.name, system: b.system || '', latin: d.latin[key] || null, description: d.descriptions[key] || null, partOf: b.of || null };
   try {
-    const { data: card, cached } = await cachedJson(uid, 'simplify', `anatomy-card\n${key}`, anatomyCardRequest(ctx), cleanAnatomyCard);
+    const { data: card, cached } = await cachedJson(uid, 'simplify', `anatomy-card\n${key}${b.of ? `\n${b.of.toLowerCase()}` : ''}`, anatomyCardRequest(ctx), cleanAnatomyCard);
     res.json({ ...card, cached, usage: await limitsFor(uid) });
   } catch (err) {
     friendly(err);
@@ -129,6 +129,7 @@ anatomyRouter.post('/ai/ask', async (req, res) => {
     .object({
       name: z.string().trim().min(2).max(200),
       system: z.string().max(20).optional(),
+      of: z.string().trim().max(200).optional(),
       messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1).max(1500) })).min(1).max(12),
     })
     .parse(req.body);
@@ -136,7 +137,7 @@ anatomyRouter.post('/ai/ask', async (req, res) => {
   const d = data();
   const key = b.name.toLowerCase();
   try {
-    const reply = await liveText(uid, 'tutor', anatomyTutorRequest({ name: b.name, system: b.system || '', latin: d.latin[key] || null, description: d.descriptions[key] || null }, b.messages.slice(-8)));
+    const reply = await liveText(uid, 'tutor', anatomyTutorRequest({ name: b.name, system: b.system || '', latin: d.latin[key] || null, description: d.descriptions[key] || null, partOf: b.of || null }, b.messages.slice(-8)));
     res.json({ reply, usage: await limitsFor(uid) });
   } catch (err) {
     friendly(err);
