@@ -100,6 +100,8 @@ if (fs.existsSync(path.join(config.distDir, 'index.html'))) {
   app.use(
     express.static(config.distDir, {
       index: false,
+      // /anatomy is both a page and the folder of 3D models: don't redirect the page to /anatomy/
+      redirect: false,
       setHeaders: (res, file) => {
         if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         // 3D models are fetched with ?v=<size>, so a week of caching is safe and saves students' data
