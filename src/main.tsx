@@ -28,6 +28,7 @@ const NewPack = lazyPage(() => import('./pages/NewPack'));
 const PackHome = lazyPage(() => import('./pages/PackHome'));
 const Library = lazyPage(() => import('./pages/Library'));
 const Coach = lazyPage(() => import('./pages/Coach'));
+const Anatomy = lazyPage(() => import('./pages/Anatomy'));
 const Battle = lazyPage(() => import('./pages/Battle'));
 const Classes = lazyPage(() => import('./pages/Classes'));
 const ClassPage = lazyPage(() => import('./pages/ClassPage'));
@@ -91,6 +92,7 @@ function App() {
           <Route path="/ranks" element={<Ranks />} />
           <Route path="/library" element={<Library />} />
           <Route path="/library/:id" element={<LibraryItem />} />
+          <Route path="/anatomy" element={<Anatomy />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/class/:id" element={<ClassPage />} />
           <Route path="/join/:code" element={<Classes />} />

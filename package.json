@@ -2,7 +2,7 @@
   "name": "charis-study",
   "version": "1.0.0",
   "private": true,
-  "description": "Charis Study \u2014 break any notes, PDF or topic into bite-size chunks and remember them with flashcards, spaced repetition, quizzes, memory palace, mnemonics and more.",
+  "description": "Charis Study — break any notes, PDF or topic into bite-size chunks and remember them with flashcards, spaced repetition, quizzes, memory palace, mnemonics and more.",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -27,6 +27,7 @@
     "jose": "^6.0.0",
     "knex": "^3.1.0",
     "tesseract.js": "^5.1.1",
+    "three": "^0.170.0",
     "web-push": "^3.6.7",
     "zod": "^4.1.0"
   },
@@ -43,6 +44,7 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.170.0",
     "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.2.0",

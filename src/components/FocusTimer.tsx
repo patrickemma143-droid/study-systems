@@ -105,7 +105,7 @@ export function FocusTimer() {
         aria-label={running ? `Focus timer: ${formatClock(left)} left` : 'Open focus timer'}
       >
         {s.phase === 'break' ? <Coffee size={16} /> : <Timer size={16} />}
-        {running || s.remaining !== s.focusMin * 60 ? formatClock(left) : 'Focus'}
+        {running || s.remaining !== s.focusMin * 60 ? formatClock(left) : <span className="focus-label">Focus</span>}
       </button>
       {open && (
         <div className="pop" style={{ right: 0, top: 46, width: 290 }} role="dialog" aria-label="Focus timer">

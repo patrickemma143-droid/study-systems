@@ -8,3 +8,4 @@ data/.secret
 .DS_Store
 !data/.gitkeep
 public/ocr/
+public/draco

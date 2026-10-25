@@ -155,6 +155,18 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { q: 'Which of these is NOT part of the lesson?', options: ['Part one', 'Part two', 'Part three', 'Something unrelated'], answer: 3, explanation: 'The last option is not in the notes.' },
       ],
     });
+  } else if (req.system.includes('TASK:ANATOMY_FIND')) {
+    text = JSON.stringify({ answer: 'The biceps brachii and brachialis flex the elbow (AI test answer).', structures: ['Biceps brachii muscle', 'Brachialis muscle', 'Femur', 'Not a real structure'] });
+  } else if (req.system.includes('TASK:ANATOMY_CARD')) {
+    const nm = (req.system.match(/STRUCTURE: ([^\n(]+)/) || [])[1]?.trim() || 'this structure';
+    text = JSON.stringify({
+      summary: `${nm} is shown here in 3D (AI test card).`,
+      facts: [{ label: 'Location', value: 'Test location' }, { label: 'Function', value: 'Test function' }],
+      clinical: ['A test clinical note.'],
+      mnemonic: '',
+      examTips: ['Know where it is.'],
+      quiz: [{ q: `Where is the ${nm}?`, a: 'Test answer' }],
+    });
   } else if (req.system.includes('TASK:MARK_ANSWER')) {
     const words = last.split(/\s+/).length;
     const outOf = Number((req.system.match(/QUESTION \((\d+) marks\)/) || [])[1] || 10);

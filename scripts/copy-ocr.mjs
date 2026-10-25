@@ -16,3 +16,9 @@ const files = [
 ];
 for (const [from, to] of files) fs.copyFileSync(from, path.join(out, to));
 console.log('OCR engine copied to public/ocr');
+
+// The 3D anatomy models are Draco-compressed: serve three.js's decoder from our own site too.
+const draco = path.resolve('public/draco');
+fs.mkdirSync(draco, { recursive: true });
+for (const f of ['draco_decoder.js', 'draco_decoder.wasm', 'draco_wasm_wrapper.js']) fs.copyFileSync(path.resolve('node_modules/three/examples/jsm/libs/draco/gltf', f), path.join(draco, f));
+console.log('Draco decoder copied to public/draco');

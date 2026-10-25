@@ -21,6 +21,7 @@ import { coachRouter } from './routes/coach';
 import { classesRouter } from './routes/classes';
 import { battlesRouter } from './routes/battles';
 import { seedLibrary } from './seed/library';
+import { anatomyRouter } from './routes/anatomy';
 import { publicRouter } from './public';
 import { startReminders } from './notify';
 
@@ -88,6 +89,7 @@ app.use('/api/library', libraryRouter);
 app.use('/api/coach', coachRouter);
 app.use('/api/classes', classesRouter);
 app.use('/api/battles', battlesRouter);
+app.use('/api/anatomy', anatomyRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Public, search-engine-friendly pages (opt-in student profiles, top students, sitemap)
@@ -100,6 +102,8 @@ if (fs.existsSync(path.join(config.distDir, 'index.html'))) {
       index: false,
       setHeaders: (res, file) => {
         if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        // 3D models are fetched with ?v=<size>, so a week of caching is safe and saves students' data
+        else if (/[\\/](anatomy|draco)[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800');
       },
     }),
   );

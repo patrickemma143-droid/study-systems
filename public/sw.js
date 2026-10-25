@@ -2,6 +2,7 @@
 // Pages and data are always fetched fresh from the network first, so a new version of the app is
 // picked up straight away; the saved copies are only used when there is no connection.
 const SHELL = 'cs-shell-v1';
+// 3D anatomy models are kept on the phone after the first download (they are versioned by ?v=)
 const DATA = 'cs-data-v1';
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -55,7 +56,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirst(req, SHELL, '/__app'));
     return;
   }
-  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/') || /^\/(icon[\w-]*\.(png|svg)|theme\.js|manifest\.webmanifest)$/.test(url.pathname)) {
+  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/anatomy/') || url.pathname.startsWith('/draco/') || url.pathname.startsWith('/fonts/') || /^\/(icon[\w-]*\.(png|svg)|theme\.js|manifest\.webmanifest)$/.test(url.pathname)) {
     // build files have unique names per version, so a saved copy is always correct
     event.respondWith(cacheFirst(req));
     return;

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { CalendarClock, Home, Layers, Library as LibraryIcon, Plus, Trophy, Users } from 'lucide-react';
+import { Bone, CalendarClock, Home, Layers, Library as LibraryIcon, Plus, Trophy, Users } from 'lucide-react';
 import { api, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { today } from '../lib/util';
@@ -51,6 +51,9 @@ export function Layout() {
             </NavLink>
             <NavLink to="/library">
               <LibraryIcon size={18} /> Library
+            </NavLink>
+            <NavLink to="/anatomy">
+              <Bone size={18} /> Anatomy
             </NavLink>
             <NavLink to="/classes">
               <Users size={18} /> Classes

@@ -148,6 +148,20 @@ Students can make an opt-in **public profile** (`/u/<name>`) with their universi
 - **Quiz battles** (`/battle/:code`): challenge a classmate to the same 5–20 questions, either **live** (both join, press ready, a countdown starts the same question for both, and each sees the other's score move) or **any time** (each plays when they open the link); answers are marked on the server; most right wins, ties go to the faster player; Fast learner points for the winner.
 - **Offline**: "Save for offline" on a pack keeps its lessons and flashcards on the device; flashcard answers, quiz results, lesson progress and study minutes made offline are kept on the phone and sent when the connection returns (and before logging out). The service worker fetches pages and data from the network first, so new versions still load straight away.
 
+## Anatomy 3D (`/anatomy`)
+
+A 3D human body atlas that runs in the browser, phones included. It loads one body system at a time.
+
+- **Systems**: skeleton, muscles, muscle insertions, joints and ligaments, heart and vessels, lymphoid organs, nervous system and sense organs, viscera. Each is a Draco-compressed GLB in `public/anatomy/` (about 22 MB in total; the skeleton is 3.7 MB). They are cached for 7 days and kept for offline use.
+- **Explore**: rotate, zoom, tap any part to name it, search 3,600 modelled parts (about 1,700 named structures) plus 1,500 landmarks, filter by region, and see bone landmarks as labelled dots. Tools include X-ray, section planes (top, side, front), dissect (tap to peel layers, then undo), deep muscles only, isolate, hide and show all.
+- **AI tutor**:
+  - Every structure gets an AI study card (summary, origin/insertion/action/nerve/blood supply, clinical notes, mnemonic, exam tips, quiz). Cards are cached and shared by all students.
+  - Students can chat about the structure.
+  - **Ask the body** ("which muscles flex the elbow?") answers the question and lights up the structures on the model. Only real model names are accepted.
+  - These use the existing `simplify` / `tutor` allowances.
+- **Quizzes on the model**: "find it" (tap the named part), "name it" (multiple choice) and "spotter" (type the name; small spelling slips are allowed). Answers are marked on the server, and Memory points are awarded for the first 3 rounds a day.
+- **Data and licences**: models are from [Z-Anatomy](https://www.z-anatomy.com) (CC BY-SA 4.0), based on BodyParts3D © The Database Center for Life Science (CC BY-SA 2.1 JP). Descriptions (`seed/anatomy/descriptions.json`) are based on Wikipedia (CC BY-SA). Latin names (`seed/anatomy/latin.json`) are from Terminologia Anatomica 2. The page shows this credit, and it must stay visible; the model files must stay under CC BY-SA. `scripts/anatomy-export.py` rebuilds the files from the Z-Anatomy `.blend` with `pip install bpy`, run once per system with `--only`.
+
 ## AI helpers (optional)
 
 Everything above works with no AI. Add one API key and these appear for logged-in students:
