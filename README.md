@@ -161,6 +161,11 @@ A 3D human body atlas that runs in the browser, phones included. It loads one bo
   - Students can show all labels, only the one they tap, or **Test me**: a red pin with four names to choose from.
   - Tapping a part turns the bone to face it and opens its Latin name, description and AI card. The AI is told which bone the part belongs to.
   - The landmarks come from Z-Anatomy's label lines: the end that touches a bone surface is the landmark. Each landmark is matched to the bone whose surface it sits on, so at a joint it goes to the right bone. Mirror images supply the other side. `scripts/anatomy-landmarks.py` re-exports them.
+- **Muscle attachments**: while studying a bone, "Show muscle attachments" colours every muscle origin (red) and insertion (blue) that lies on it, e.g. the vasti and gastrocnemius arising from the femur, and the glutei, iliopsoas and adductors inserting into it. The attachments are labelled and listed, and tapping one opens that muscle with its AI card. The model marks insertions; an area without a mark is treated as the muscle's origin.
+- **Flashcards from a bone**: "Make flashcards from these parts" turns a bone's parts (and the muscles attached to it) into a normal study pack (`POST /api/anatomy/pack`). Its flashcards are written both ways from the descriptions, with an origin/insertion card for each muscle and multiple-choice questions. The cards join spaced review and the timetable; asking again for the same bone opens the existing pack.
+- **Save a picture**: the camera button saves the current view as a PNG, with its labels, title and the model's licence credit, for revision notes or a class group.
+- **Say it**: a speaker button reads out the name and the Latin name, using the phone's own voice.
+- **Share links and recent**: `/anatomy?s=Femur&study=1` opens the atlas straight on a structure (after logging in, if needed). The Share button copies such a link or opens the phone's share sheet (WhatsApp, a class board). "Recently studied" on the Systems tab keeps the last eight structures on that device.
 - **AI tutor**:
   - Every structure gets an AI study card (summary, origin/insertion/action/nerve/blood supply, clinical notes, mnemonic, exam tips, quiz). Cards are cached and shared by all students.
   - Students can chat about the structure.

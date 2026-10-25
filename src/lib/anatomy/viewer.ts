@@ -69,6 +69,16 @@ export interface PartPin {
   /** the bone surface's outward direction there: used to tell whether the point faces the student */
   n: THREE.Vector3;
 }
+/** A muscle's origin or insertion area lying on a bone. */
+export interface Attachment {
+  key: string;
+  muscle: string;
+  role: 'origin' | 'insertion' | 'attachment';
+  ids: string[];
+  pin: PartPin;
+}
+const ATTACH_COLOUR = { origin: '#e5533d', insertion: '#3d7bff', attachment: '#a35bd6' } as const;
+
 export type ViewDir = 'anterior' | 'posterior' | 'left' | 'right' | 'superior' | 'inferior';
 const VIEW_DIR: Record<ViewDir, [number, number, number]> = {
   anterior: [0, 0, 1],
@@ -126,6 +136,14 @@ export class AnatomyViewer {
   hiddenHistory: string[][] = [];
   /** study mode: one structure on its own, turning around its own centre */
   studyId: string | null = null;
+  /** muscle attachment areas shown on the studied bone */
+  private studyExtras = new Set<string>();
+  private attachCache = new Map<string, Attachment[]>();
+  private attachMats: Record<Attachment['role'], THREE.MeshStandardMaterial> = {
+    origin: new THREE.MeshStandardMaterial({ color: ATTACH_COLOUR.origin, roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    insertion: new THREE.MeshStandardMaterial({ color: ATTACH_COLOUR.insertion, roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    attachment: new THREE.MeshStandardMaterial({ color: ATTACH_COLOUR.attachment, roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+  };
   private beforeStudy: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
   private explodeNow = 0;
   private explodeTarget = 0;
@@ -374,12 +392,12 @@ export class AnatomyViewer {
   /** Who is visible: system switched on, not hidden by the student, in the region, and the muscle layer. */
   private applyVisibility() {
     const studySys = this.studyId ? this.catalogue.structures[this.studyId]?.system : null;
-    for (const [sid, g] of this.groups) g.visible = this.visibleSystems.has(sid) || sid === studySys;
+    for (const [sid, g] of this.groups) g.visible = this.visibleSystems.has(sid) || sid === studySys || (sid === 'insertions' && this.studyExtras.size > 0);
     for (const [id, m] of this.meshes) {
       const s = this.catalogue.structures[id];
       if (!s) continue;
       if (this.studyId) {
-        m.visible = id === this.studyId;
+        m.visible = id === this.studyId || this.studyExtras.has(id);
         continue;
       }
       let v = !this.hidden.has(id) && this.inRegion(s);
@@ -704,13 +722,20 @@ export class AnatomyViewer {
     this.invalidate();
     this.emit();
   }
+  private worldOffset(m: THREE.Mesh) {
+    const off = (m.userData.homeCentre as THREE.Vector3).clone().sub(this.explodeCentre).multiply(SPREAD).multiplyScalar(this.explodeNow);
+    const d = this.dragged.get(m.userData.id);
+    if (d) off.add(d);
+    return off;
+  }
   private applyOffsets() {
+    // attachment areas shown on a studied bone travel with that bone
+    const bone = this.studyId ? this.meshes.get(this.studyId) : undefined;
+    const boneOff = bone?.userData.home ? this.worldOffset(bone) : null;
     for (const m of this.meshes.values()) {
       const home = m.userData.home as THREE.Vector3 | undefined;
       if (!home) continue;
-      const off = (m.userData.homeCentre as THREE.Vector3).clone().sub(this.explodeCentre).multiply(SPREAD).multiplyScalar(this.explodeNow);
-      const d = this.dragged.get(m.userData.id);
-      if (d) off.add(d);
+      const off = boneOff && this.studyExtras.has(m.userData.id) ? boneOff.clone() : this.worldOffset(m);
       m.position.copy(home).add(off.applyMatrix3(m.userData.pinv));
       m.updateMatrixWorld(true);
     }
@@ -757,6 +782,89 @@ export class AnatomyViewer {
 
   // ─── study one structure on its own ───
 
+  /** The muscle origins and insertions that lie on this bone (needs the attachments model). */
+  async attachmentsOf(id: string): Promise<Attachment[]> {
+    const cached = this.attachCache.get(id);
+    if (cached) return cached;
+    const bone = this.meshes.get(id);
+    if (!bone || this.catalogue.structures[id]?.system !== 'skeleton') return [];
+    await this.load('insertions');
+    const box = this.homeBox(bone).clone().expandByScalar(0.006);
+    const byKey = new Map<string, Attachment>();
+    for (const [pid, m] of this.meshes) {
+      const s = this.catalogue.structures[pid];
+      if (!s || s.system !== 'insertions' || !m.userData.homeWorld) continue;
+      if (!this.homeBox(m).intersectsBox(box)) continue;
+      // most of the area must sit on this bone's surface
+      const wv = this.worldVerts(m);
+      const n = wv.length / 3;
+      const step = Math.max(1, Math.floor(n / 10));
+      let on = 0;
+      let tried = 0;
+      let bestI = 0;
+      let bestD = Infinity;
+      const p = new THREE.Vector3();
+      const c = m.userData.homeCentre as THREE.Vector3;
+      for (let i = 0; i < n; i += step) {
+        p.set(wv[i * 3], wv[i * 3 + 1], wv[i * 3 + 2]);
+        tried++;
+        if (this.surface(bone, p).d < 0.005) on++;
+        const dc = p.distanceToSquared(c);
+        if (dc < bestD) {
+          bestD = dc;
+          bestI = i;
+        }
+      }
+      if (!tried || on / tried < 0.6) continue;
+      // the model marks insertions; an unmarked area of a muscle is where it arises (its origin)
+      const role: Attachment['role'] = s.role === 'insertion' ? 'insertion' : 'origin';
+      const key = `${s.name} (${role})`;
+      const prev = byKey.get(key);
+      if (prev) {
+        prev.ids.push(pid);
+        continue;
+      }
+      const at = new THREE.Vector3(wv[bestI * 3], wv[bestI * 3 + 1], wv[bestI * 3 + 2]);
+      const normals = m.geometry.getAttribute('normal');
+      let nrm = normals ? new THREE.Vector3().fromBufferAttribute(normals, bestI).applyMatrix3(new THREE.Matrix3().getNormalMatrix(m.userData.homeWorld)).normalize() : at.clone().sub(bone.userData.homeCentre).normalize();
+      // make sure the direction points away from the bone
+      if (nrm.dot(at.clone().sub(bone.userData.homeCentre)) < 0) nrm = nrm.negate();
+      byKey.set(key, { key, muscle: s.name, role, ids: [pid], pin: { name: key, p: at, n: nrm } });
+    }
+    const list = [...byKey.values()].sort((a, b) => b.pin.p.y - a.pin.p.y);
+    this.attachCache.set(id, list);
+    return list;
+  }
+  get attachmentsShown() {
+    return this.studyExtras.size > 0;
+  }
+  /** Colour a studied bone's muscle origins (red) and insertions (blue) on it. */
+  async showAttachments(on: boolean) {
+    if (!this.studyId) return;
+    const id = this.studyId;
+    const list = on ? await this.attachmentsOf(id) : [];
+    if (this.studyId !== id) return;
+    this.clearAttachments();
+    for (const a of list)
+      for (const pid of a.ids) {
+        this.studyExtras.add(pid);
+        const m = this.meshes.get(pid);
+        if (m) m.material = this.attachMats[a.role];
+      }
+    this.applyOffsets();
+    this.applyVisibility();
+    this.emit();
+  }
+  private clearAttachments() {
+    for (const pid of this.studyExtras) {
+      const m = this.meshes.get(pid);
+      if (m && m.userData.mat) m.material = this.selected.includes(pid) ? this.highlightMat : m.userData.mat;
+    }
+    this.studyExtras.clear();
+    this.applyOffsets();
+    this.applyVisibility();
+  }
+
   study(id: string) {
     if (!this.meshes.has(id)) return;
     if (!this.studyId)
@@ -772,6 +880,7 @@ export class AnatomyViewer {
   }
   endStudy() {
     if (!this.studyId) return;
+    this.clearAttachments();
     this.studyId = null;
     this.controls.autoRotate = false;
     this.applyVisibility();
@@ -948,10 +1057,10 @@ export class AnatomyViewer {
     return pin.n.dot(this.camera.position.clone().sub(p)) > -0.002;
   }
   /** Turn the structure so this landmark faces the student. */
-  showPin(id: string, pin: PartPin, centreOnPin = false) {
+  showPin(id: string, pin: PartPin, centreOnPin = false, pinMesh = id) {
     const box = this.centreOf(id);
     if (!box) return;
-    const p = this.pinNow(id, pin);
+    const p = this.pinNow(pinMesh, pin);
     // a quiz puts the point itself in the middle of the screen, clear of the question at the bottom
     const c = centreOnPin ? p.clone().lerp(box, 0.15) : box;
     const dir = pin.n.clone().multiplyScalar(0.75).add(p.clone().sub(box).normalize().multiplyScalar(0.25)).normalize();

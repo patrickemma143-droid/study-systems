@@ -1911,3 +1911,20 @@ label.btn {
   .anat-options .chip { font-size: .72rem; padding: 5px 7px; text-align: left; white-space: normal; line-height: 1.2; }
   .anat-bottom .anat-hint { font-size: .74rem; padding: 4px 10px; }
 }
+/* Anatomy: muscle attachments, pronounce */
+.anat-pin.att-origin { background: #e5533d; }
+.anat-pin.att-insertion { background: #3d7bff; }
+.anat-pin.att-attachment { background: #a35bd6; }
+.anat-plabel.att-origin { border-left: 3px solid #e5533d; }
+.anat-plabel.att-insertion { border-left: 3px solid #3d7bff; }
+.anat-plabel.att-attachment { border-left: 3px solid #a35bd6; }
+.anat-plabel.l.att-origin, .anat-plabel.l.att-insertion, .anat-plabel.l.att-attachment { border-left-width: 1px; border-right: 3px solid currentColor; }
+.anat-plabel.l.att-origin { border-right-color: #e5533d; }
+.anat-plabel.l.att-insertion { border-right-color: #3d7bff; }
+.anat-plabel.l.att-attachment { border-right-color: #a35bd6; }
+.att-key { display: inline-flex; align-items: center; gap: 4px; font-size: .74rem; color: var(--ink-3); }
+.att-key::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: #a35bd6; display: inline-block; }
+.att-key.origin::before { background: #e5533d; }
+.att-key.insertion::before { background: #3d7bff; }
+.anat-toggle { gap: 8px; cursor: pointer; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.anat-say { vertical-align: middle; margin-left: 4px; }

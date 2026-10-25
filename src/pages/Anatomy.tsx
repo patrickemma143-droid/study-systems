@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Box,
   Boxes,
+  Camera,
+  Share2,
+  Volume2,
+  Layers,
   Crosshair,
   Eye,
   EyeOff,
@@ -26,7 +30,8 @@ import { api } from '../api';
 import { useToast } from '../components/ui';
 import { useStudyTimer } from '../lib/usePack';
 import { left, updateAiUsage, useAiStatus } from '../lib/ai';
-import { AnatomyViewer, SYSTEM_LABEL, SYSTEM_ORDER, type Catalogue, type Region, type Structure, type SystemId, type ViewDir } from '../lib/anatomy/viewer';
+import { AnatomyViewer, SYSTEM_LABEL, SYSTEM_ORDER, type Attachment, type Catalogue, type PartPin, type Region, type Structure, type SystemId, type ViewDir } from '../lib/anatomy/viewer';
+import { speakSequence, ttsSupported } from '../lib/speech';
 
 const CATALOGUE_VERSION = '2';
 const REGIONS: { id: Region; label: string }[] = [
@@ -65,6 +70,48 @@ interface PinView {
   x: number;
   y: number;
   facing: boolean;
+  /** muscle attachments are coloured: origin red, insertion blue */
+  kind?: Attachment['role'];
+}
+const ROLE_LABEL: Record<Attachment['role'], string> = { origin: 'Origins', insertion: 'Insertions', attachment: 'Other attachments' };
+
+// recently studied structures, kept on this device only
+interface Recent {
+  name: string;
+  system: SystemId;
+}
+function readRecent(): Recent[] {
+  try {
+    const r = JSON.parse(localStorage.getItem('anat-recent') || '[]');
+    return Array.isArray(r) ? r.slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+function pushRecent(item: Recent) {
+  try {
+    const list = [item, ...readRecent().filter((r) => r.name !== item.name)].slice(0, 8);
+    localStorage.setItem('anat-recent', JSON.stringify(list));
+  } catch {
+    /* private mode: no history */
+  }
+}
+/** A link that opens the atlas on this structure (and studies it), for WhatsApp or a class board. */
+function linkTo(name: string, study: boolean) {
+  return `${location.origin}/anatomy?s=${encodeURIComponent(name)}${study ? '&study=1' : ''}`;
+}
+async function shareLink(name: string, study: boolean, toast: (m: string) => void) {
+  const url = linkTo(name, study);
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: `${name} — Charis Study Anatomy 3D`, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    toast('Link copied. Paste it in WhatsApp or your class board.');
+  } catch {
+    /* the student closed the share sheet */
+  }
 }
 interface PlacedLabel extends PinView {
   lx: number;
@@ -78,7 +125,7 @@ const shuffle = <T,>(a: T[]) =>
     .map(([, x]) => x);
 
 /** Atlas-style labels: two columns at the sides, in the same order as their points, joined by lines. */
-function placeLabels(pins: PinView[], W: number, H: number, width: number): PlacedLabel[] {
+function placeLabels(pins: PinView[], W: number, H: number, width: number, rightTop = 240): PlacedLabel[] {
   if (!pins.length) return [];
   const xs = pins.map((p) => p.x);
   const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -87,7 +134,7 @@ function placeLabels(pins: PinView[], W: number, H: number, width: number): Plac
     // each pin goes to exactly one side; the right column starts below the tool buttons
     const col = pins.filter((p) => p.x < mid === left).sort((a, b) => a.y - b.y);
     if (!col.length) continue;
-    const top = left ? 70 : Math.min(240, H * 0.4);
+    const top = left ? 70 : Math.min(rightTop, H * 0.6);
     const bottom = H - 62;
     const gap = col.length > 1 ? Math.max(13, Math.min(21, (bottom - top) / (col.length - 1))) : 21;
     const ys = col.map((p) => p.y);
@@ -144,6 +191,16 @@ export default function Anatomy() {
   const [part, setPart] = useState<string | null>(null);
   const [pins, setPins] = useState<PinView[]>([]);
   const [size, setSize] = useState({ w: 600, h: 500 });
+  const [attachOn, setAttachOn] = useState(false);
+  const [attach, setAttach] = useState<Attachment[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [madePack, setMadePack] = useState<number | null>(null);
+  const [making, setMaking] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [recent, setRecent] = useState<Recent[]>(() => readRecent());
+  const [params] = useSearchParams();
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<{ placed: PlacedLabel[]; width: number; pins: PinView[] } | null>(null);
   const [ptest, setPtest] = useState<{
     order: string[];
     i: number;
@@ -174,7 +231,7 @@ export default function Anatomy() {
     (window as any).__anatomy = v; // handy for support and automated checks
     const off = v.on(() => force((n) => n + 1));
     // the skeleton first: it is the frame everything else hangs on
-    void toggle('skeleton', true);
+    void toggle('skeleton', true).then(() => setReady(true));
     return () => {
       off();
       v.dispose();
@@ -226,22 +283,19 @@ export default function Anatomy() {
       setPins([]);
       return;
     }
-    const list = v.partsOf(studyId);
+    const list: { pin: PartPin; mesh: string; kind?: Attachment['role'] }[] = [
+      ...v.partsOf(studyId).map((pin) => ({ pin, mesh: studyId })),
+      ...(attachOn ? attach.map((a) => ({ pin: a.pin, mesh: a.ids[0], kind: a.role })) : []),
+    ];
     const update = () => {
       const el = v.renderer.domElement;
       setSize((o) => (o.w === el.clientWidth && o.h === el.clientHeight ? o : { w: el.clientWidth, h: el.clientHeight }));
       setPins(
         list
-          .map((pin) => {
-            const p = v.toScreen(v.pinNow(studyId, pin));
-            return p
-              ? {
-                  name: pin.name,
-                  x: p.x,
-                  y: p.y,
-                  facing: v.pinFacing(studyId, pin),
-                }
-              : null;
+          .map(({ pin, mesh, kind }) => {
+            const p = v.toScreen(v.pinNow(mesh, pin));
+            const view: PinView | null = p ? { name: pin.name, x: p.x, y: p.y, facing: v.pinFacing(mesh, pin), kind } : null;
+            return view;
           })
           .filter((x): x is PinView => !!x),
       );
@@ -251,7 +305,7 @@ export default function Anatomy() {
     return () => {
       off();
     };
-  }, [studyId]);
+  }, [studyId, attachOn, attach]);
 
   const toggle = useCallback(
     async (sid: SystemId, on: boolean) => {
@@ -285,6 +339,14 @@ export default function Anatomy() {
 
   function startStudy(id: string) {
     if (!v) return;
+    const st = cat?.structures[id];
+    if (st) {
+      pushRecent({ name: st.name, system: st.system });
+      setRecent(readRecent());
+    }
+    setAttachOn(false);
+    setAttach([]);
+    setMadePack(null);
     setQuiz(null);
     setPeeling(false);
     setMoving(false);
@@ -302,6 +364,8 @@ export default function Anatomy() {
     v.endStudy();
     setPart(null);
     setPtest(null);
+    setAttachOn(false);
+    setAttach([]);
     if (id) {
       setSelId(id);
       v.select([id]);
@@ -312,6 +376,118 @@ export default function Anatomy() {
     setPart(name);
     const pin = parts.find((p) => p.name === name);
     if (pin) v.showPin(studyId, pin);
+    const a = attach.find((x) => x.key === name);
+    if (a) v.showPin(studyId, a.pin, false, a.ids[0]);
+  }
+  async function toggleAttachments(on: boolean) {
+    if (!v || !studyId) return;
+    setAttachBusy(true);
+    try {
+      await v.showAttachments(on);
+      const list = on ? await v.attachmentsOf(studyId) : [];
+      setAttach(list);
+      setAttachOn(on && list.length > 0);
+      if (on && !list.length) toast('No muscle attachments are marked on this bone in the model.');
+      if (!on && part && attach.some((a) => a.key === part)) setPart(null);
+    } catch {
+      toast('Could not download the muscle attachments. Check your connection.');
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+  /** The parts (and muscles attached) become a study pack with flashcards in spaced review. */
+  async function makePack() {
+    if (!studied) return;
+    setMaking(true);
+    try {
+      const all = attach.length ? attach : studyId && v && studied.system === 'skeleton' ? await v.attachmentsOf(studyId).catch(() => []) : [];
+      const r = await api<{ id: number; existing?: boolean }>('/anatomy/pack', {
+        body: { structure: studied.name, side: studied.side, parts: parts.map((p) => p.name), attachments: all.map((a) => ({ muscle: a.muscle, role: a.role })) },
+      });
+      setMadePack(r.id);
+      toast(r.existing ? 'You already have flashcards for this bone.' : 'Flashcards made. They are in your study packs.');
+    } catch (e: any) {
+      toast(e.message);
+    } finally {
+      setMaking(false);
+    }
+  }
+  /** Save what is on screen, labels included, as a picture for revision notes. */
+  function savePicture() {
+    if (!v) return;
+    const gl = v.renderer.domElement;
+    v.renderer.render(v.scene, v.camera); // the drawing must be read in the same moment it is made
+    const W = gl.clientWidth;
+    const H = gl.clientHeight;
+    const k = gl.width / W;
+    const c = document.createElement('canvas');
+    c.width = gl.width;
+    c.height = gl.height;
+    const x = c.getContext('2d');
+    if (!x) return;
+    x.scale(k, k);
+    const bg = x.createRadialGradient(W / 2, H * 0.35, 10, W / 2, H * 0.35, Math.max(W, H));
+    bg.addColorStop(0, '#26334f');
+    bg.addColorStop(0.7, '#121a2c');
+    x.fillStyle = bg;
+    x.fillRect(0, 0, W, H);
+    x.drawImage(gl, 0, 0, W, H);
+    const lay = layoutRef.current;
+    if (studied && lay) {
+      x.font = '11px Lexend, system-ui, sans-serif';
+      x.textBaseline = 'middle';
+      for (const p of lay.placed) {
+        x.strokeStyle = p.facing ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.3)';
+        x.setLineDash(p.facing ? [] : [3, 3]);
+        x.beginPath();
+        x.moveTo(p.left ? p.lx + lay.width : p.lx, p.ly);
+        x.lineTo(p.x, p.y);
+        x.stroke();
+        x.setLineDash([]);
+        x.fillStyle = p.kind ? (p.kind === 'origin' ? '#e5533d' : p.kind === 'insertion' ? '#3d7bff' : '#a35bd6') : '#f5d000';
+        x.beginPath();
+        x.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        x.fill();
+        x.fillStyle = p.facing ? '#ffffff' : 'rgba(255,255,255,.6)';
+        x.textAlign = p.left ? 'right' : 'left';
+        let t = p.name;
+        while (x.measureText(t).width > lay.width - 8 && t.length > 4) t = t.slice(0, -2);
+        if (t !== p.name) t = t.slice(0, -1) + '…';
+        x.fillText(t, p.left ? p.lx + lay.width - 4 : p.lx + 4, p.ly);
+      }
+    }
+    x.textAlign = 'left';
+    x.fillStyle = '#ffffff';
+    x.font = '600 15px Lexend, system-ui, sans-serif';
+    x.fillText(studied ? `${studied.name}${sideLabel(studied)}` : sel ? sel.name : 'Anatomy 3D', 14, 22);
+    x.font = '10px Lexend, system-ui, sans-serif';
+    x.fillStyle = 'rgba(255,255,255,.7)';
+    x.fillText('Charis Study · Anatomy 3D · model: Z-Anatomy (CC BY-SA 4.0), BodyParts3D © DBCLS (CC BY-SA 2.1 JP)', 14, H - 12);
+    c.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(studied?.name || sel?.name || 'anatomy').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, 'image/png');
+  }
+  /** Open a structure by name (from a link or the recent list), optionally straight into study. */
+  async function openStructure(name: string, study: boolean) {
+    const vv = viewer.current;
+    if (!vv || !cat) return;
+    const ids = vv.idsByName(name);
+    const first = ids[0];
+    if (!first) return toast(`“${name}” is not in the atlas.`);
+    await toggle(cat.structures[first].system, true);
+    if (study) startStudy(first);
+    else {
+      setSelId(first);
+      vv.select(ids, true);
+      setTab('info');
+    }
   }
   // test yourself on the parts: a red pin, four names
   function partOptions(name: string) {
@@ -581,6 +757,21 @@ export default function Anatomy() {
     );
   }
 
+  // a shared link: /anatomy?s=Femur&study=1
+  useEffect(() => {
+    if (!ready) return;
+    const name = params.get('s');
+    if (name) void openStructure(name, params.get('study') === '1');
+  }, [ready]);
+
+  // label layout for study mode (also used when saving a picture)
+  const labelWidth = size.w < 500 ? size.w * 0.33 : Math.min(170, Math.max(96, size.w * 0.27));
+  // with muscle attachments on, the muscles are labelled; the bone's own parts stay as tappable pins
+  const labelled = !studied ? [] : labelMode === 'all' ? pins.filter((p) => !attachOn || p.kind || p.name === part) : labelMode === 'tap' ? pins.filter((p) => p.name === part) : [];
+  const tools = toolsRef.current;
+  const placed = placeLabels(labelled, size.w, size.h, labelWidth, tools ? tools.offsetTop + tools.offsetHeight + 10 : 240);
+  layoutRef.current = studied ? { placed, width: labelWidth, pins } : null;
+
   if (error) {
     return (
       <div className="sheet empty" style={{ maxWidth: 640, margin: '40px auto' }}>
@@ -668,7 +859,10 @@ export default function Anatomy() {
         )}
 
         {/* tools */}
-        <div className="anat-tools" role="toolbar" aria-label="Tools">
+        <div className="anat-tools" role="toolbar" aria-label="Tools" ref={toolsRef}>
+          <button className="anat-tool" onClick={savePicture} title="Save a picture of this view (with labels)" aria-label="Save picture">
+            <Camera size={18} />
+          </button>
           <button className="anat-tool" onClick={() => v?.resetView()} title="Reset view" aria-label="Reset view">
             <RotateCcw size={18} />
           </button>
@@ -813,11 +1007,8 @@ export default function Anatomy() {
 
         {studied &&
           (() => {
-            const width = size.w < 500 ? size.w * 0.33 : Math.min(170, Math.max(96, size.w * 0.27));
+            const width = labelWidth;
             const target = ptest && !ptest.done ? ptest.order[ptest.i] : null;
-            // all labels: parts on the far side are labelled too, dimmed
-            const labelled = labelMode === 'all' ? pins : labelMode === 'tap' ? pins.filter((p) => p.name === part) : [];
-            const placed = placeLabels(labelled, size.w, size.h, width);
             return (
               <>
                 <svg className="anat-lines" width={size.w} height={size.h} aria-hidden>
@@ -827,10 +1018,11 @@ export default function Anatomy() {
                 </svg>
                 {pins
                   .filter((p) => (target ? p.name === target : true))
+                  .filter((p) => !(labelMode === 'test' && p.kind))
                   .map((p) => (
                     <button
                       key={p.name}
-                      className={`anat-pin ${p.facing ? '' : 'back'} ${p.name === part ? 'sel' : ''} ${p.name === target ? 'target' : ''}`}
+                      className={`anat-pin ${p.facing ? '' : 'back'} ${p.name === part ? 'sel' : ''} ${p.name === target ? 'target' : ''} ${p.kind ? `att-${p.kind}` : ''}`}
                       style={{ left: p.x, top: p.y }}
                       onClick={() => choosePart(p.name)}
                       aria-label={target ? 'The part to name' : p.name}
@@ -838,7 +1030,7 @@ export default function Anatomy() {
                     />
                   ))}
                 {placed.map((p) => (
-                  <button key={p.name} className={`anat-plabel ${p.left ? 'l' : ''} ${p.name === part ? 'sel' : ''} ${p.facing ? '' : 'back'}`} style={{ left: p.lx, top: p.ly, width }} onClick={() => choosePart(p.name)}>
+                  <button key={p.name} className={`anat-plabel ${p.left ? 'l' : ''} ${p.name === part ? 'sel' : ''} ${p.facing ? '' : 'back'} ${p.kind ? `att-${p.kind}` : ''}`} style={{ left: p.lx, top: p.ly, width }} onClick={() => choosePart(p.name)}>
                     {p.name}
                   </button>
                 ))}
@@ -890,10 +1082,23 @@ export default function Anatomy() {
                   {sideLabel(studied)}
                 </h2>
               </div>
-              <button className="btn small ghost" onClick={exitStudy}>
-                <ArrowLeft size={14} /> Body
-              </button>
+              <div className="row" style={{ gap: 4 }}>
+                <button className="btn icon small ghost" onClick={() => shareLink(studied.name, true, toast)} title="Share a link that opens this" aria-label="Share">
+                  <Share2 size={15} />
+                </button>
+                <button className="btn small ghost" onClick={exitStudy}>
+                  <ArrowLeft size={14} /> Body
+                </button>
+              </div>
             </div>
+            {studied.system === 'skeleton' && (
+              <label className="row small anat-toggle">
+                <input type="checkbox" checked={attachOn} disabled={attachBusy} onChange={(e) => toggleAttachments(e.target.checked)} />
+                <span>
+                  {attachBusy ? 'Loading muscle attachments…' : 'Show muscle attachments'} <span className="att-key origin">origin</span> <span className="att-key insertion">insertion</span>
+                </span>
+              </label>
+            )}
             {parts.length > 0 ? (
               <>
                 <div className="segmented anat-tabs">
@@ -955,13 +1160,55 @@ export default function Anatomy() {
                     </div>
                   </div>
                 )}
+                {attachOn &&
+                  !(ptest && !ptest.done) &&
+                  (['origin', 'insertion', 'attachment'] as const).map((role) => {
+                    const list = attach.filter((a) => a.role === role);
+                    if (!list.length) return null;
+                    return (
+                      <div key={role}>
+                        <div className="label" style={{ marginBottom: 6 }}>
+                          <span className={`att-key ${role}`} /> {ROLE_LABEL[role]} ({list.length})
+                        </div>
+                        <div className="anat-partlist">
+                          {list.map((a) => (
+                            <button key={a.key} aria-pressed={part === a.key} onClick={() => choosePart(a.key)}>
+                              {a.muscle}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                {parts.length >= 3 &&
+                  (madePack ? (
+                    <Link to={`/pack/${madePack}`} className="btn small">
+                      <Layers size={14} /> Open the flashcards
+                    </Link>
+                  ) : (
+                    <button className="btn small" onClick={makePack} disabled={making}>
+                      <Layers size={14} /> {making ? 'Making flashcards…' : `Make flashcards from these ${parts.length} parts`}
+                    </button>
+                  ))}
               </>
             ) : (
               <p className="small muted" style={{ margin: 0 }}>
                 The model has no labelled landmarks on this part yet. Turn it around, and use the tutor below.
               </p>
             )}
-            {part ? (
+            {part && attach.some((a) => a.key === part) ? (
+              (() => {
+                const a = attach.find((x) => x.key === part)!;
+                return (
+                  <StructurePanel
+                    key={`att-${part}`}
+                    s={{ name: a.muscle, system: 'muscles' }}
+                    context={`${a.role === 'origin' ? 'Arises (origin) from' : a.role === 'insertion' ? 'Inserts into' : 'Attached to'} the ${studied.name.toLowerCase()}`}
+                    onBack={() => setPart(null)}
+                  />
+                );
+              })()
+            ) : part ? (
               <StructurePanel key={`part-${part}`} s={{ name: part, system: studied.system }} partOf={studied.name} onBack={() => setPart(null)} />
             ) : (
               <StructurePanel key={`study-${studied.name}`} s={studied} compact />
@@ -983,6 +1230,20 @@ export default function Anatomy() {
 
             {tab === 'systems' && cat && (
               <div className="stack">
+                {recent.length > 0 && (
+                  <div>
+                    <div className="label" style={{ marginBottom: 6 }}>
+                      Recently studied
+                    </div>
+                    <div className="row" style={{ gap: 6 }}>
+                      {recent.map((r) => (
+                        <button key={r.name} className="chip" onClick={() => openStructure(r.name, true)}>
+                          {r.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="anat-systems">
                   {SYSTEM_ORDER.map((sid) => {
                     const on = v?.visibleSystems.has(sid) || false;
@@ -1161,6 +1422,7 @@ function StructurePanel({
   partOf,
   compact,
   onBack,
+  context,
 }: {
   s: Pick<Structure, 'name' | 'system'> & Partial<Structure>;
   onHide?: () => void;
@@ -1172,8 +1434,11 @@ function StructurePanel({
   /** inside study mode: no zoom/hide buttons */
   compact?: boolean;
   onBack?: () => void;
+  /** a line above the name, e.g. "Inserts into the femur" */
+  context?: string;
 }) {
   const ai = useAiStatus();
+  const toast = useToast();
   const [d, setD] = useState<Described | null>(null);
   const [more, setMore] = useState(false);
   const [card, setCard] = useState<AiCard | null>(null);
@@ -1236,7 +1501,17 @@ function StructurePanel({
       ) : (
         <div>
           <div className="small muted">
-            {partOf ? (
+            {context ? (
+              <>
+                {context}
+                {onBack && (
+                  <button className="linklike" onClick={onBack}>
+                    {' '}
+                    · back
+                  </button>
+                )}
+              </>
+            ) : partOf ? (
               <>
                 Part of the {partOf.toLowerCase()}
                 {onBack && (
@@ -1254,7 +1529,14 @@ function StructurePanel({
               </>
             )}
           </div>
-          <h2 style={{ margin: '2px 0', fontSize: partOf ? '1.1rem' : '1.25rem' }}>{s.name}</h2>
+          <h2 style={{ margin: '2px 0', fontSize: partOf || context ? '1.1rem' : '1.25rem' }}>
+            {s.name}
+            {ttsSupported && (
+              <button className="btn icon small ghost anat-say" onClick={() => speakSequence([s.name, ...(d?.latin ? [d.latin] : [])], { rate: 0.9, gapMs: 500 })} title="Say it" aria-label={`Say ${s.name}`}>
+                <Volume2 size={15} />
+              </button>
+            )}
+          </h2>
           {d?.latin && (
             <div className="small" style={{ fontStyle: 'italic' }}>
               {d.latin}
@@ -1267,8 +1549,11 @@ function StructurePanel({
           <GraduationCap size={16} /> {s.system === 'skeleton' ? 'Study this bone and its parts' : 'Study this on its own in 3D'}
         </button>
       )}
-      {!compact && !partOf && (
+      {!compact && !partOf && onFocus && (
         <div className="row" style={{ gap: 6 }}>
+          <button className="btn small" onClick={() => shareLink(s.name, s.system === 'skeleton', toast)} title="Share a link that opens this">
+            <Share2 size={14} /> Share
+          </button>
           <button className="btn small" onClick={onFocus}>
             <Focus size={14} /> Zoom to it
           </button>

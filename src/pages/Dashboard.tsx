@@ -8,7 +8,7 @@ import { daysUntil, examLabel, greeting, plural, today } from '../lib/util';
 import { SessionRow, type PlanSession } from './Plan';
 import { ExamReview, pendingReviews, readyColor } from '../components/Readiness';
 
-const SOURCE_ICON: Record<string, typeof FileText> = { pdf: FileText, docx: FileText, pptx: Presentation, topic: Globe, paste: StickyNote, txt: StickyNote };
+const SOURCE_ICON: Record<string, typeof FileText> = { pdf: FileText, docx: FileText, pptx: Presentation, topic: Globe, paste: StickyNote, txt: StickyNote, anatomy: Bone };
 
 export default function Dashboard() {
   const { user } = useAuth();
