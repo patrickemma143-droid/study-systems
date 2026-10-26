@@ -1,10 +1,10 @@
 import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import '@fontsource/lexend/latin-400.css';
-import '@fontsource/lexend/latin-500.css';
-import '@fontsource/lexend/latin-600.css';
-import '@fontsource/lexend/latin-700.css';
+import '@fontsource/nunito/latin-400.css';
+import '@fontsource/nunito/latin-600.css';
+import '@fontsource/nunito/latin-700.css';
+import '@fontsource/nunito/latin-800.css';
 import '@fontsource/caveat/latin-600.css';
 import './styles/global.css';
 import { AuthProvider, useAuth } from './auth';
@@ -29,6 +29,8 @@ const PackHome = lazyPage(() => import('./pages/PackHome'));
 const Library = lazyPage(() => import('./pages/Library'));
 const Coach = lazyPage(() => import('./pages/Coach'));
 const Anatomy = lazyPage(() => import('./pages/Anatomy'));
+const Tutor = lazyPage(() => import('./pages/Tutor'));
+const Homework = lazyPage(() => import('./pages/Homework'));
 const Battle = lazyPage(() => import('./pages/Battle'));
 const Classes = lazyPage(() => import('./pages/Classes'));
 const ClassPage = lazyPage(() => import('./pages/ClassPage'));
@@ -93,6 +95,8 @@ function App() {
           <Route path="/library" element={<Library />} />
           <Route path="/library/:id" element={<LibraryItem />} />
           <Route path="/anatomy" element={<Anatomy />} />
+          <Route path="/tutor/:id" element={<Tutor />} />
+          <Route path="/homework" element={<Homework />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/class/:id" element={<ClassPage />} />
           <Route path="/join/:code" element={<Classes />} />

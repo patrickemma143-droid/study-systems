@@ -1,6 +1,6 @@
 # Charis Study
 
-Charis Study turns a lecture PDF, slides, Word notes, pasted text or **just a topic name** into bite-size lessons, then lets the student choose how to learn it. Every method is built on how memory works.
+Charis Study turns a lecture PDF, slides, Word notes, pasted text, a photo of a homework problem or **just a topic name** into lessons — and, with AI switched on, a **whiteboard tutor** teaches them out loud, step by step, stopping whenever the student has a question. Every study method is built on how memory works.
 
 It is a **Charis Creations** product. The core app is **API-free**: no AI keys and no cost per student, and everything runs on your own server. Optional **AI helpers** (simple explanations, a tutor chat and AI marking) switch on when you add a Gemini or Claude API key. See [AI helpers](#ai-helpers-optional).
 
@@ -148,6 +148,47 @@ Students can make an opt-in **public profile** (`/u/<name>`) with their universi
 - **Quiz battles** (`/battle/:code`): challenge a classmate to the same 5–20 questions, either **live** (both join, press ready, a countdown starts the same question for both, and each sees the other's score move) or **any time** (each plays when they open the link); answers are marked on the server; most right wins, ties go to the faster player; Fast learner points for the winner.
 - **Offline**: "Save for offline" on a pack keeps its lessons and flashcards on the device; flashcard answers, quiz results, lesson progress and study minutes made offline are kept on the phone and sent when the connection returns (and before logging out). The service worker fetches pages and data from the network first, so new versions still load straight away.
 
+## Whiteboard tutor (AI)
+
+The AI tutor teaches on a whiteboard while it talks:
+- It writes handwriting, maths (KaTeX), flow charts, cycles, tables and graphs.
+- It circles, underlines and draws arrows to earlier items.
+- The student can stop it at any time with **"I have a question"**: typed, spoken (dictation), or quick chips such as "Explain that again, more simply" or "Give me another example". The answer appears on its own board, then the lesson carries on.
+
+**Ways in:**
+- **Home**, under "What do you want to learn today?":
+  - **Topic:** any subject, grounded in Wikipedia when it can be reached.
+  - **My notes:** teaches a pack lesson by lesson, with "Next lesson" at the end.
+  - **Exam prep:** a fast review of the most examinable lessons, how they are asked, traps, and practice.
+  - **Homework:** see below.
+- **Pack page:** "Teach me this pack" and "Exam prep".
+- **Lesson page:** "Teach me on the board".
+
+**Snap a problem (`/homework`):** a photo (shrunk on the phone, about 200 KB) or a typed homework or past-paper question is worked through on the board. It ends with a similar problem to try alone, with a hidden worked answer. It uses AI vision: Gemini, or Claude.
+
+**After every lesson:**
+- a summary and multiple-choice practice, marked on the server (Memory points, first try per lesson per day)
+- **Save as flashcards:** added to the pack the lesson came from, or a new study pack for topic and homework lessons. The cards then join spaced review.
+
+**Voice:**
+- **Natural voice:** Gemini text-to-speech (`gemini-3.1-flash-tts-preview`, voice `Sulafat`), converted on the server to a small MP3 (about 5 KB per second of speech). Each sentence is spoken once and shared by everyone through the `tts_audio` table.
+- If the natural voice is unavailable, or the day's limit is reached, the tutor switches to the phone's own voice. "No sound" mode shows captions only.
+- Students can change speed (1×–1.5×) and turn captions on or off.
+
+**Saving and sharing:**
+- Lessons are saved per student (`tutor_lessons`, with the place reached), so home shows "continue" cards.
+- The same material is planned only once and shared (`ai_cache`), so the second student opens it instantly at no cost.
+
+**Allowances** (per day, Free / Pro): `teach` 5 / 80 whiteboard lessons, `homework` 3 / 40 problems, `voice` 60 / 1200 newly spoken steps. Questions during a lesson use `tutor`.
+
+**Code:** `server/routes/tutor.ts`, `server/ai/tutor.ts` (prompts), `shared/tutor.ts` (the board format and its checks), `src/pages/Tutor.tsx`, `src/components/Board.tsx`, `src/lib/tutor/narrator.ts` (voice and fallbacks), `src/lib/tutor/graph.ts` (a safe maths parser for graphs, no eval) and `src/pages/Homework.tsx`.
+
+## Look and feel
+
+The app has a bright, clean style: white surfaces on a soft cool background, one violet-to-sky gradient (`--grad`) for main actions, and the rounded **Nunito** font. The handwritten **Caveat** font is kept for the whiteboard and notes in the margin. Dark mode follows the phone. Design tokens are at the top of `src/styles/global.css`.
+
+**Home is one question, "What do you want to learn today?"**, with Topic / My notes / Exam prep / Homework below it. Then come cards to continue (reviews due and unfinished lessons), stats, today's plan, exams coming up, study packs, and a "More ways to study" grid: Library, Anatomy 3D, Classes, Timetable, Rankings, Mixed quiz and New pack. No earlier feature was removed. The phone tab bar has a central **Snap** button for homework.
+
 ## Anatomy 3D (`/anatomy`)
 
 A 3D human body atlas that runs in the browser, phones included. It loads one body system at a time.
@@ -207,8 +248,12 @@ Everything above works with no AI. Add one API key and these appear for logged-i
 | `ANTHROPIC_API_KEY` | | Turns AI on with Claude (used if no Gemini key) |
 | `AI_PROVIDER` | auto | `gemini`, `claude`, or `mock` (fake answers, for testing only) |
 | `AI_MODEL` | `gemini-3.5-flash-lite` / `claude-haiku-5-5` | Model name |
-| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2` | Daily allowance on Free (build = smart lessons, paper = AI exam papers) |
-| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20` | Daily allowance on Pro |
+| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2,teach=5,homework=3,voice=60` | Daily allowance on Free (build = smart lessons, paper = AI exam papers, teach = whiteboard lessons, homework = snapped problems, voice = newly spoken tutor steps) |
+| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20,teach=80,homework=40,voice=1200` | Daily allowance on Pro |
+| `TTS_MODEL` | `gemini-3.1-flash-tts-preview` | The tutor's natural voice (needs a Gemini key, even if the main AI is Claude; `TTS_API_KEY` can hold a separate one) |
+| `TTS_VOICE` | `Sulafat` | Any Gemini prebuilt voice, e.g. `Kore`, `Puck`, `Achird`, `Vindemiatrix` |
+| `TTS_ENABLED` | `true` | `false` makes the tutor use the phone's own voice |
+| `TTS_PRICE_OUTPUT` | `10` | USD per million audio tokens, for the admin cost estimate (check Google's current price) |
 | `ADMIN_EMAILS` | | Comma-separated emails that can open `/admin` (admins always get Pro) |
 | `TZ_OFFSET_HOURS` | `3` | When "today" starts for allowances (3 = Kampala) |
 | `AI_PRICE_INPUT`, `AI_PRICE_OUTPUT` | built-in table | USD per million tokens, for the admin cost estimates |

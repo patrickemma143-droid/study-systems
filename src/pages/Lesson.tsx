@@ -1,6 +1,7 @@
+import { useAiStatus } from '../lib/ai';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Target, Layers, Lightbulb, MessageSquareText, Square, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Target, Layers, Lightbulb, MessageSquareText, Square, Volume2, Presentation } from 'lucide-react';
 import type { BodyPart } from '@shared/engine/types';
 import { api } from '../api';
 import { AiSimplify, TutorChat } from '../components/AiPanels';
@@ -28,6 +29,7 @@ export default function Lesson() {
   const index = Number(chunkParam);
   const nav = useNavigate();
   const toast = useToast();
+  const aiStatus = useAiStatus();
   const { data, error } = usePack(id);
   const [showFull, setShowFull] = useState(true);
   const [speaking, setSpeaking] = useState(false);
@@ -109,6 +111,7 @@ export default function Lesson() {
   }
 
   const groups = groupBody(chunk.body);
+  const aiOn = !!aiStatus?.enabled;
   const objectives = data.pack.data.outline?.objectives[index] ?? lessonObjectives(data.pack.data, index);
 
   return (
@@ -122,11 +125,18 @@ export default function Lesson() {
           </div>
           <h1 style={{ margin: '4px 0 0' }}>{chunk.title}</h1>
         </div>
-        {ttsSupported && (
-          <button className="btn" onClick={listen} aria-pressed={speaking}>
-            {speaking ? <Square size={16} /> : <Volume2 size={18} />} {speaking ? 'Stop' : 'Listen'}
-          </button>
-        )}
+        <div className="row" style={{ gap: 8 }}>
+          {aiOn && (
+            <Link to={`/tutor/new?mode=lesson&pack=${id}&chunk=${index}`} className="btn primary">
+              <Presentation size={18} /> Teach me on the board
+            </Link>
+          )}
+          {ttsSupported && (
+            <button className="btn" onClick={listen} aria-pressed={speaking}>
+              {speaking ? <Square size={16} /> : <Volume2 size={18} />} {speaking ? 'Stop' : 'Listen'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="sheet" style={{ borderLeft: '6px solid var(--hl-yellow)', marginBottom: 18 }}>

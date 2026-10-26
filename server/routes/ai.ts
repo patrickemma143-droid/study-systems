@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ai } from '../config';
+import { ai, voice } from '../config';
 import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
 import type { StudyPack } from '../../shared/engine/types';
@@ -59,7 +59,7 @@ function wrap(handler: (req: any, res: any) => Promise<void>) {
 
 aiRouter.get('/status', async (_req, res) => {
   const { plan, admin, limits, used } = await limitsFor(userId(res));
-  res.json({ enabled: ai.enabled, provider: ai.enabled ? ai.provider : null, plan, admin, limits, used });
+  res.json({ enabled: ai.enabled, provider: ai.enabled ? ai.provider : null, voice: voice.enabled, plan, admin, limits, used });
 });
 
 aiRouter.post(

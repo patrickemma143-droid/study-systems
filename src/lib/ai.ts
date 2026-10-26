@@ -1,11 +1,13 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { api } from '../api';
 
-export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice';
 
 export interface AiStatus {
   enabled: boolean;
   provider: string | null;
+  /** the tutor's natural (AI) voice is available */
+  voice?: boolean;
   plan: 'free' | 'pro';
   admin: boolean;
   limits: Record<AiKind, number>;

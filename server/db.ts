@@ -496,6 +496,40 @@ migrations['010_live_battles'] = {
   async down() {},
 };
 
+migrations['011_tutor'] = {
+  async up(k) {
+    // Whiteboard tutor lessons a student has opened (to continue later) and the shared voice cache
+    if (!(await k.schema.hasTable('tutor_lessons'))) {
+      await k.schema.createTable('tutor_lessons', (t) => {
+        t.increments('id');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('mode', 20).notNullable(); // topic | lesson | exam | homework | text
+        t.integer('pack_id').unsigned().nullable();
+        t.integer('chunk_index').nullable();
+        t.string('title', 200).notNullable();
+        t.text('data', 'mediumtext').notNullable();
+        t.integer('step').notNullable().defaultTo(0);
+        t.bigInteger('created_at').notNullable();
+        t.bigInteger('opened_at').notNullable();
+        t.index(['user_id', 'opened_at']);
+      });
+    }
+    if (!(await k.schema.hasTable('tts_audio'))) {
+      await k.schema.createTable('tts_audio', (t) => {
+        t.increments('id');
+        t.string('cache_key', 64).notNullable().unique();
+        t.string('mime', 40).notNullable();
+        if (k.client.config.client === 'mysql2' || k.client.config.client === 'mysql') t.specificType('bytes', 'mediumblob').notNullable();
+        else t.binary('bytes').notNullable();
+        t.integer('duration_ms').notNullable().defaultTo(0);
+        t.integer('hits').notNullable().defaultTo(0);
+        t.bigInteger('created_at').notNullable();
+      });
+    }
+  },
+  async down() {},
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

@@ -80,7 +80,7 @@ function webPort(): number {
 
 // ─── AI (optional) ───────────────────────────────────────────
 // No key → the app stays fully API-free. Set GEMINI_API_KEY or ANTHROPIC_API_KEY (or AI_PROVIDER + AI_API_KEY).
-export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice';
 type Limits = Record<AiKind, number>;
 
 function parseLimits(text: string | undefined, fallback: Limits): Limits {
@@ -108,8 +108,25 @@ export const ai = {
   priceInput: env.AI_PRICE_INPUT ? Number(env.AI_PRICE_INPUT) : null,
   priceOutput: env.AI_PRICE_OUTPUT ? Number(env.AI_PRICE_OUTPUT) : null,
   limits: {
-    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2 }),
-    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20 }),
+    // teach = whiteboard lessons, homework = snapped problems, voice = spoken steps (natural voice)
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 60 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 1200 }),
+  },
+};
+
+/**
+ * Natural voice for the whiteboard tutor: Gemini text-to-speech. It needs a Gemini key, even when
+ * the main AI is Claude. Without it the tutor uses the phone's own voice.
+ */
+export const voice = {
+  key: env.TTS_API_KEY || env.GEMINI_API_KEY || (aiProvider === 'gemini' ? ai.key : ''),
+  model: env.TTS_MODEL || 'gemini-3.1-flash-tts-preview',
+  /** a warm voice by default; any Gemini prebuilt voice name works (Kore, Puck, Sulafat, Achird…) */
+  voiceName: env.TTS_VOICE || 'Sulafat',
+  /** USD per 1M audio output tokens, for the cost estimate on the admin page */
+  priceOutput: env.TTS_PRICE_OUTPUT ? Number(env.TTS_PRICE_OUTPUT) : 10,
+  get enabled() {
+    return env.TTS_ENABLED !== 'false' && (aiProvider === 'mock' || !!this.key);
   },
 };
 

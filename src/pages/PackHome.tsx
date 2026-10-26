@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpenCheck, CalendarDays, Check, Download, Target, ExternalLink, FileUp, Pencil, PartyPopper, Trash2, X } from 'lucide-react';
+import { BookOpenCheck, CalendarDays, Check, Download, Target, ExternalLink, FileUp, Pencil, PartyPopper, Play, Presentation, Trash2, X } from 'lucide-react';
+import { useAiStatus } from '../lib/ai';
+import { TutorFace } from '../components/TutorFace';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { AiPackExplainer, SmartPackBuilder } from '../components/AiPanels';
@@ -26,6 +28,7 @@ export default function PackHome() {
   const nav = useNavigate();
   const toast = useToast();
   const { user, setUser } = useAuth();
+  const aiTutor = useAiStatus();
   const { data, error, reload } = usePack(id);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editExam, setEditExam] = useState<string | null>(null);
@@ -203,6 +206,24 @@ export default function PackHome() {
           <FileUp size={16} /> Upload a past paper
         </Link>
       </div>
+
+      {aiTutor?.enabled && (
+        <section className="tutor-banner">
+          <TutorFace size={58} />
+          <div className="tutor-banner-text">
+            <strong>Let the tutor teach it</strong>
+            <span className="small muted">Every lesson taught step by step on a whiteboard, out loud. Stop and ask questions any time.</span>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <Link to={`/tutor/new?mode=lesson&pack=${id}&chunk=0`} className="btn primary">
+              <Presentation size={17} /> Teach me this pack
+            </Link>
+            <Link to={`/tutor/new?mode=exam&pack=${id}`} className="btn">
+              <Play size={16} /> Exam prep
+            </Link>
+          </div>
+        </section>
+      )}
 
       <section className="section">
         <div className="section-head">

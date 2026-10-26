@@ -55,7 +55,7 @@ function page(opts: { req: Request; title: string; description: string; path: st
 <meta name="twitter:description" content="${esc(opts.description)}">
 ${opts.jsonLd ? `<script type="application/ld+json">${JSON.stringify(opts.jsonLd).replace(/</g, '\\u003c')}</script>` : ''}
 <style>
-:root{--ink:#16213d;--muted:#5c6780;--biro:#2346b8;--paper:#fff;--desk:#eef3f9;--line:#dce4ef;--gold:#d4a017}
+:root{--ink:#17172f;--muted:#5d6080;--biro:#5a48f5;--paper:#fff;--desk:#f6f7fc;--line:#e8eaf3;--gold:#d4a017}
 *{box-sizing:border-box}body{margin:0;background:var(--desk);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--biro)}header{background:var(--paper);border-bottom:1px solid var(--line)}
 .wrap{max-width:900px;margin:0 auto;padding:16px}.brand{display:flex;align-items:center;gap:10px;font-weight:700;text-decoration:none;color:var(--ink)}

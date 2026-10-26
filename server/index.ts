@@ -22,6 +22,7 @@ import { classesRouter } from './routes/classes';
 import { battlesRouter } from './routes/battles';
 import { seedLibrary } from './seed/library';
 import { anatomyRouter } from './routes/anatomy';
+import { tutorRouter } from './routes/tutor';
 import { publicRouter } from './public';
 import { startReminders } from './notify';
 
@@ -39,6 +40,8 @@ app.use(
         'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'worker-src': ["'self'", 'blob:'],
+        'media-src': ["'self'", 'blob:'], // the whiteboard tutor's voice
+
         'connect-src': ["'self'"],
         'upgrade-insecure-requests': config.cookieSecure ? [] : null,
       },
@@ -90,6 +93,7 @@ app.use('/api/coach', coachRouter);
 app.use('/api/classes', classesRouter);
 app.use('/api/battles', battlesRouter);
 app.use('/api/anatomy', anatomyRouter);
+app.use('/api/tutor', tutorRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Public, search-engine-friendly pages (opt-in student profiles, top students, sitemap)

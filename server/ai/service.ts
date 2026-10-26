@@ -27,7 +27,7 @@ export async function userPlan(userId: number): Promise<{ plan: 'free' | 'pro'; 
 /** Requests that actually used the AI today (shared/cached answers don't count). */
 export async function usedToday(userId: number): Promise<Record<AiKind, number>> {
   const rows = await db('ai_events').where({ user_id: userId, day: aiDay(), cached: false }).groupBy('kind').select('kind').count({ n: '*' });
-  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0, build: 0, paper: 0 };
+  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0, build: 0, paper: 0, teach: 0, homework: 0, voice: 0 };
   for (const r of rows as any[]) if (r.kind in out) out[r.kind as AiKind] = Number(r.n);
   return out;
 }
@@ -39,7 +39,7 @@ export async function limitsFor(userId: number) {
   return { plan, admin, limits, used };
 }
 
-async function assertAllowed(userId: number, kind: AiKind) {
+export async function assertAllowed(userId: number, kind: AiKind) {
   const { plan, limits, used } = await limitsFor(userId);
   if (limits[kind] <= 0) throw new HttpError(403, plan === 'free' ? 'This AI feature is for Pro accounts.' : 'This AI feature is switched off.');
   if (used[kind] >= limits[kind]) {
@@ -48,10 +48,10 @@ async function assertAllowed(userId: number, kind: AiKind) {
 }
 
 function label(kind: AiKind) {
-  return ({ simplify: 'simple explanations', tutor: 'tutor questions', feedback: 'AI marks', build: 'smart lessons', paper: 'AI exam papers' } as Record<AiKind, string>)[kind];
+  return ({ simplify: 'simple explanations', tutor: 'tutor questions', feedback: 'AI marks', build: 'smart lessons', paper: 'AI exam papers', teach: 'whiteboard lessons', homework: 'homework problems', voice: 'spoken steps' } as Record<AiKind, string>)[kind];
 }
 
-async function record(userId: number, kind: AiKind, result: AiResult | null, cached: boolean) {
+export async function record(userId: number, kind: AiKind, result: AiResult | null, cached: boolean, costOverride?: number) {
   await db('ai_events').insert({
     user_id: userId,
     day: aiDay(),
@@ -60,7 +60,7 @@ async function record(userId: number, kind: AiKind, result: AiResult | null, cac
     cached,
     tokens_in: result?.tokensIn || 0,
     tokens_out: result?.tokensOut || 0,
-    cost_micro_usd: result ? costMicroUsd(ai.model, result.tokensIn, result.tokensOut, result.cachedIn) : 0,
+    cost_micro_usd: costOverride ?? (result ? costMicroUsd(ai.model, result.tokensIn, result.tokensOut, result.cachedIn) : 0),
     created_at: now(),
   });
 }

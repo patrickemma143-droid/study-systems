@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Bone, CalendarClock, Home, Layers, Library as LibraryIcon, Plus, Trophy, Users } from 'lucide-react';
+import { Bone, CalendarClock, Camera, Home, Layers, Library as LibraryIcon, Plus, Trophy, Users } from 'lucide-react';
 import { api, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { today } from '../lib/util';
@@ -46,8 +46,8 @@ export function Layout() {
             <NavLink to="/review">
               <Layers size={18} /> Review {due > 0 && <span className="badge">{due > 99 ? '99+' : due}</span>}
             </NavLink>
-            <NavLink to="/plan">
-              <CalendarClock size={18} /> Timetable
+            <NavLink to="/homework">
+              <Camera size={18} /> Homework
             </NavLink>
             <NavLink to="/library">
               <LibraryIcon size={18} /> Library
@@ -58,13 +58,10 @@ export function Layout() {
             <NavLink to="/classes">
               <Users size={18} /> Classes
             </NavLink>
-            <NavLink to="/ranks">
-              <Trophy size={18} /> Rankings
-            </NavLink>
-            <NavLink to="/new">
-              <Plus size={18} /> New pack
-            </NavLink>
           </nav>
+          <Link to="/new" className="btn small primary topbar-new">
+            <Plus size={16} /> New
+          </Link>
           <div className="spacer" />
           <ErrorBoundary fallback={null}>
             <FocusTimer />
@@ -96,13 +93,15 @@ export function Layout() {
           <CalendarClock size={22} />
           Plan
         </NavLink>
+        <NavLink to="/homework" className="tab-snap">
+          <span className="tab-snap-icon">
+            <Camera size={22} />
+          </span>
+          Snap
+        </NavLink>
         <NavLink to="/ranks">
           <Trophy size={22} />
           Ranks
-        </NavLink>
-        <NavLink to="/new">
-          <Plus size={22} />
-          Add
         </NavLink>
         <NavLink to="/library">
           <LibraryIcon size={22} />

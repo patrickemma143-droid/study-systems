@@ -1,11 +1,14 @@
 // AI providers behind one small interface. Only the one chosen in the environment is used.
-import { ai } from '../config';
+import { Mp3Encoder } from '@breezystack/lamejs';
+import { ai, voice } from '../config';
 
 export interface AiRequest {
   /** Instructions plus long, reusable context (lesson notes) — cached by Claude, implicitly by Gemini. */
   system: string;
   messages: { role: 'user' | 'assistant'; content: string }[];
   json?: boolean;
+  /** pictures sent with the last user message (a snapped homework problem) */
+  images?: { mime: string; data: string }[];
   maxTokens: number;
   temperature?: number;
 }
@@ -82,7 +85,10 @@ async function gemini(req: AiRequest): Promise<AiResult> {
     { 'x-goog-api-key': ai.key },
     {
       systemInstruction: { parts: [{ text: req.system }] },
-      contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+      contents: req.messages.map((m, i) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [...(i === req.messages.length - 1 && req.images ? req.images.map((im) => ({ inlineData: { mimeType: im.mime, data: im.data } })) : []), { text: m.content }],
+      })),
       generationConfig,
     },
   );
@@ -108,7 +114,11 @@ async function claude(req: AiRequest): Promise<AiResult> {
       temperature: req.temperature ?? 0.4,
       // The lesson notes sit in the system prompt, so follow-up questions read them from the cache.
       system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
-      messages: req.messages,
+      messages: req.messages.map((m, i) =>
+        i === req.messages.length - 1 && req.images?.length
+          ? { role: m.role, content: [...req.images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })), { type: 'text', text: m.content }] }
+          : m,
+      ),
     },
   );
   const text = (data?.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
@@ -154,6 +164,33 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { q: `Which statement best describes ${title}?`, options: ['The correct description (smart)', 'A near miss', 'A common mistake', 'Something from another lesson'], answer: 0, explanation: 'It matches the notes.' },
         { q: 'Which of these is NOT part of the lesson?', options: ['Part one', 'Part two', 'Part three', 'Something unrelated'], answer: 3, explanation: 'The last option is not in the notes.' },
       ],
+    });
+  } else if (req.system.includes('TASK:TEACH_ASK')) {
+    text = JSON.stringify({
+      steps: [
+        { say: 'Great question. Let me show you on a fresh part of the board.', board: [{ t: 'clear' }, { t: 'heading', text: 'Your question' }, { t: 'write', id: 'q1', text: last.slice(0, 120), tone: 'muted' }] },
+        { say: 'Here is the idea in one line. Does that make sense? Let us carry on.', board: [{ t: 'box', label: 'In short', text: 'The answer, simply (AI test answer).' }, { t: 'underline', target: 'q1' }] },
+      ],
+    });
+  } else if (req.system.includes('TASK:TEACH_LESSON') || req.system.includes('TASK:HOMEWORK')) {
+    const lessonTitle = (req.system.match(/LESSON: (.+)/) || [])[1] || (req.system.includes('TASK:HOMEWORK') ? 'Solving a quadratic equation' : 'Test lesson');
+    text = JSON.stringify({
+      title: lessonTitle,
+      steps: [
+        { say: `Welcome! Today we are learning ${lessonTitle}. Let us start with the big idea.`, board: [{ t: 'heading', text: lessonTitle }, { t: 'write', id: 'w1', text: 'The big idea, in one line', tone: 'key' }] },
+        { say: 'Here is the key equation. Notice the two parts on each side.', board: [{ t: 'math', id: 'm1', tex: 'x^2 + 5x + 6 = 0' }, { t: 'write', id: 'w2', text: 'Factorise: $(x+2)(x+3) = 0$' }, { t: 'circle', target: 'm1' }] },
+        { say: 'Now let us see the process as a flow, and how the steps connect.', board: [{ t: 'flow', items: ['Read the question', 'Choose a method', 'Solve', 'Check'] }, { t: 'arrow', from: 'w1', to: 'w2', label: 'leads to' }] },
+        { say: 'Some things repeat as a cycle, and a table helps us compare.', board: [{ t: 'clear' }, { t: 'cycle', items: ['Plan', 'Do', 'Check', 'Improve'] }, { t: 'table', head: ['Method', 'When to use'], rows: [['Factorise', 'Small whole numbers'], ['Formula', 'Always works']] }] },
+        { say: 'A graph shows where the curve crosses zero. Those are our answers.', board: [{ t: 'graph', fn: 'x^2+5x+6', xmin: -5, xmax: 1, label: 'y = x² + 5x + 6' }, { t: 'bullets', items: ['Crosses at x = −2', 'and at x = −3'] }] },
+        { say: 'So the answer is x equals minus two or minus three. Well done!', board: [{ t: 'box', label: 'Answer', text: '$x = -2$ or $x = -3$' }, { t: 'underline', target: 'w2' }] },
+      ],
+      summary: ['Factorise to find the roots.', 'Check by putting the answers back in.', 'The graph crosses the x-axis at the roots.'],
+      practice: [
+        { q: 'What are the roots of x² + 5x + 6 = 0?', options: ['−2 and −3', '2 and 3', '−6 and 1', '5 and 6'], answer: 0, explain: '(x+2)(x+3)=0 gives x = −2 or −3.' },
+        { q: 'Which method always works for a quadratic?', options: ['Guessing', 'The quadratic formula', 'Drawing only', 'None'], answer: 1, explain: 'The formula works for every quadratic.' },
+        { q: 'Where does the graph cross the x-axis?', options: ['At the roots', 'At the top', 'Nowhere', 'At y = 6'], answer: 0, explain: 'y = 0 at the roots.' },
+      ],
+      tryNext: req.system.includes('TASK:HOMEWORK') ? { q: 'Solve x² + 7x + 12 = 0', answer: '(x+3)(x+4)=0, so x = −3 or x = −4' } : undefined,
     });
   } else if (req.system.includes('TASK:ANATOMY_FIND')) {
     text = JSON.stringify({ answer: 'The biceps brachii and brachialis flex the elbow (AI test answer).', structures: ['Biceps brachii muscle', 'Brachialis muscle', 'Femur', 'Not a real structure'] });
@@ -234,4 +271,57 @@ export function parseJsonReply<T>(text: string): T {
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1)) as T;
     throw new AiError('The AI answer was not in the expected format. Try again.');
   }
+}
+
+// ─── Natural voice (Gemini text-to-speech) ───────────────────
+
+/** Raw 16-bit mono PCM → a small MP3 (about 5 KB a second), kind to students' data bundles. */
+export function pcmToMp3(pcm: Int16Array, rate: number): Buffer {
+  const enc = new Mp3Encoder(1, rate, 40);
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < pcm.length; i += 1152) {
+    const b = enc.encodeBuffer(pcm.subarray(i, i + 1152));
+    if (b.length) out.push(b);
+  }
+  const end = enc.flush();
+  if (end.length) out.push(end);
+  return Buffer.concat(out.map((b) => Buffer.from(b.buffer, b.byteOffset, b.length)));
+}
+
+export interface Speech {
+  mp3: Buffer;
+  durationMs: number;
+  tokensOut: number;
+}
+
+/** Speak one tutor step. The style lines steer the voice; only the transcript is read out. */
+export async function speak(text: string): Promise<Speech> {
+  if (!voice.enabled) throw new AiError('The natural voice is not switched on.', 503);
+  if (ai.provider === 'mock') {
+    // a quiet tone as long as the words would take to say, so the whole path can be tested
+    const rate = 24000;
+    const n = Math.min(rate * 8, Math.max(rate / 2, Math.round((text.length / 15) * rate)));
+    const pcm = new Int16Array(n);
+    for (let i = 0; i < n; i++) pcm[i] = Math.round(Math.sin((i / rate) * 2 * Math.PI * 220) * 600);
+    return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((n / rate) * 1000), tokensOut: Math.ceil(text.length / 4) };
+  }
+  const prompt = `[Audio Profile: A warm, patient university tutor who loves helping students understand.]
+[Scene: A one-to-one lesson at a whiteboard.]
+[Director's Notes: Clear, friendly and encouraging. Unhurried pace, natural pauses, gentle emphasis on key words.]
+${text}`;
+  const data = await postJson(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`,
+    { 'x-goog-api-key': voice.key },
+    {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice.voiceName } } } },
+    },
+  );
+  const part = (data?.candidates?.[0]?.content?.parts || []).find((p: any) => p.inlineData?.data);
+  if (!part) throw new AiError('The voice service returned no audio.', 503);
+  const rate = Number(String(part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1]) || 24000;
+  const raw = Buffer.from(part.inlineData.data, 'base64');
+  // copy into its own buffer: a typed array view needs 2-byte alignment
+  const pcm = new Int16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length - (raw.length % 2)));
+  return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((pcm.length / rate) * 1000), tokensOut: Number(data?.usageMetadata?.candidatesTokenCount || 0) };
 }

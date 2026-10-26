@@ -527,6 +527,9 @@ export function AiPlanCard() {
     { kind: 'feedback', label: 'AI marking' },
     { kind: 'build', label: 'Smart lessons' },
     { kind: 'paper', label: 'AI exam papers' },
+    { kind: 'teach', label: 'Whiteboard lessons' },
+    { kind: 'homework', label: 'Homework problems' },
+    { kind: 'voice', label: 'Natural voice (spoken steps)' },
   ];
   return (
     <div className="sheet stack">

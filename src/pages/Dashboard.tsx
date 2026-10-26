@@ -1,12 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, CalendarDays, FileText, Flame, Globe, Layers, Plus, Presentation, Shuffle, Sparkles, StickyNote, LibraryBig, Users, Bone } from 'lucide-react';
+import { ArrowRight, BookOpenText, Camera, CalendarClock, CalendarDays, FileText, Flame, Globe, GraduationCap, Layers, Lightbulb, Play, Plus, Presentation, Shuffle, Sparkles, StickyNote, LibraryBig, Target, Trophy, Upload, Users, Bone } from 'lucide-react';
 import { api, type PackSummary, type Stats } from '../api';
 import { useAuth } from '../auth';
 import { Loading, Ring, useToast } from '../components/ui';
 import { daysUntil, examLabel, greeting, plural, today } from '../lib/util';
 import { SessionRow, type PlanSession } from './Plan';
 import { ExamReview, pendingReviews, readyColor } from '../components/Readiness';
+import { useAiStatus } from '../lib/ai';
+import { TutorFace } from '../components/TutorFace';
+
+interface TutorSummary {
+  id: number;
+  mode: string;
+  title: string;
+  step: number;
+  steps: number;
+}
+type LearnMode = 'topic' | 'notes' | 'exam' | 'homework';
+const TOPIC_IDEAS = ['Photosynthesis', 'Supply and demand', 'Ohm’s law', 'The cardiac cycle', 'Differentiation', 'Contract law basics'];
 
 const SOURCE_ICON: Record<string, typeof FileText> = { pdf: FileText, docx: FileText, pptx: Presentation, topic: Globe, paste: StickyNote, txt: StickyNote, anatomy: Bone };
 
@@ -19,6 +31,11 @@ export default function Dashboard() {
   const [making, setMaking] = useState(false);
   const [todayPlan, setTodayPlan] = useState<PlanSession[] | null>(null);
   const [reviews, setReviews] = useState<Awaited<ReturnType<typeof pendingReviews>>>([]);
+  const ai = useAiStatus();
+  const [mode, setMode] = useState<LearnMode>('topic');
+  const [topic, setTopic] = useState('');
+  const [pick, setPick] = useState<number | ''>('');
+  const [lessons, setLessons] = useState<TutorSummary[]>([]);
 
   useEffect(() => {
     api<{ packs: PackSummary[] }>('/packs').then((r) => setPacks(r.packs));
@@ -29,7 +46,26 @@ export default function Dashboard() {
     pendingReviews()
       .then(setReviews)
       .catch(() => {});
+    api<{ lessons: TutorSummary[] }>('/tutor/lessons')
+      .then((r) => setLessons(r.lessons))
+      .catch(() => {});
   }, []);
+
+  /** "Teach me …": the whiteboard tutor when the AI is on, otherwise a study pack from the topic. */
+  async function learnTopic(e?: FormEvent, t = topic) {
+    e?.preventDefault();
+    const what = t.trim();
+    if (what.length < 2) return toast('Type what you want to learn first.');
+    if (ai?.enabled) return nav(`/tutor/new?mode=topic&topic=${encodeURIComponent(what)}`);
+    setMaking(true);
+    try {
+      const r = await api<{ id: number }>('/packs/topic', { body: { topic: what } });
+      nav(`/pack/${r.id}?new=1`);
+    } catch (err: any) {
+      toast(err.message);
+      setMaking(false);
+    }
+  }
 
   async function trySample() {
     setMaking(true);
@@ -49,47 +85,167 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="row between" style={{ alignItems: 'flex-end', marginBottom: 22 }}>
-        <div>
-          <h1 style={{ marginBottom: 4 }}>
-            {greeting()}, {first}
-          </h1>
-          <p className="muted" style={{ margin: 0 }}>
-            {stats.dueCards > 0
-              ? `${plural(stats.dueCards, 'flashcard')} ${stats.dueCards === 1 ? 'is' : 'are'} ready for review.`
-              : packs.length
-                ? 'Nothing due right now. A short quiz keeps it fresh.'
-                : 'Add your first notes to get started.'}
-          </p>
+      <section className="learn-hero">
+        <div className="learn-hero-head">
+          <TutorFace size={54} speaking={false} />
+          <div>
+            <p className="learn-hi">
+              {greeting()}, {first}
+            </p>
+            <h1>What do you want to learn today?</h1>
+          </div>
         </div>
-        <div className="row">
-          {stats.dueCards > 0 && (
-            <Link to="/review" className="btn primary">
-              <Layers size={18} /> Review {stats.dueCards} cards
-            </Link>
-          )}
-          {packs.length >= 2 && (
-            <Link to="/quiz/mixed" className="btn">
-              <Shuffle size={18} /> Mixed quiz
-            </Link>
-          )}
-          <Link to="/new" className={`btn ${stats.dueCards > 0 ? '' : 'primary'}`}>
-            <Plus size={18} /> New study pack
-          </Link>
+        <div className="learn-tabs" role="tablist">
+          {(
+            [
+              ['topic', Lightbulb, 'Topic'],
+              ['notes', BookOpenText, 'My notes'],
+              ['exam', Target, 'Exam prep'],
+              ['homework', Camera, 'Homework'],
+            ] as const
+          ).map(([m, Icon, label]) => (
+            <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
+              <Icon size={17} /> {label}
+            </button>
+          ))}
         </div>
-      </div>
+        {mode === 'topic' && (
+          <form className="learn-box" onSubmit={learnTopic}>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Photosynthesis, the Krebs cycle, supply and demand…" aria-label="Topic to learn" />
+            <button className="btn primary" disabled={making}>
+              <Play size={16} /> {ai?.enabled ? 'Teach me' : 'Make lessons'}
+            </button>
+          </form>
+        )}
+        {mode === 'topic' && (
+          <div className="learn-ideas">
+            {TOPIC_IDEAS.map((t) => (
+              <button key={t} className="chip" onClick={() => learnTopic(undefined, t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+        {mode === 'notes' && (
+          <div className="learn-split">
+            <Link to="/new" className="learn-card">
+              <Upload size={22} />
+              <strong>Upload notes, slides or a textbook</strong>
+              <span className="small muted">PDF, PowerPoint, Word or photos. We break it into bite-size lessons.</span>
+            </Link>
+            <div className="learn-card">
+              <GraduationCap size={22} />
+              <strong>Teach me one of my packs</strong>
+              {packs.length ? (
+                <div className="row" style={{ gap: 6, width: '100%' }}>
+                  <select className="input" value={pick} onChange={(e) => setPick(e.target.value ? Number(e.target.value) : '')} aria-label="Study pack" style={{ flex: 1, minWidth: 0 }}>
+                    <option value="">Choose a pack…</option>
+                    {packs.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="btn primary" disabled={!pick} onClick={() => nav(ai?.enabled ? `/tutor/new?mode=lesson&pack=${pick}&chunk=0` : `/pack/${pick}`)}>
+                    <Play size={16} />
+                  </button>
+                </div>
+              ) : (
+                <span className="small muted">Upload notes first, then the tutor teaches them on the board.</span>
+              )}
+            </div>
+          </div>
+        )}
+        {mode === 'exam' && (
+          <div className="learn-split">
+            <div className="learn-card">
+              <Target size={22} />
+              <strong>Help me study for my test</strong>
+              <span className="small muted">A fast board review of the must-knows, how they’re examined, and practice.</span>
+              {packs.length ? (
+                <div className="row" style={{ gap: 6, width: '100%' }}>
+                  <select className="input" value={pick} onChange={(e) => setPick(e.target.value ? Number(e.target.value) : '')} aria-label="Study pack for the exam" style={{ flex: 1, minWidth: 0 }}>
+                    <option value="">Which course?</option>
+                    {packs.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="btn primary" disabled={!pick} onClick={() => nav(ai?.enabled ? `/tutor/new?mode=exam&pack=${pick}` : `/pack/${pick}/coach`)}>
+                    <Play size={16} />
+                  </button>
+                </div>
+              ) : (
+                <Link to="/new" className="btn small">
+                  <Plus size={15} /> Add your course notes first
+                </Link>
+              )}
+            </div>
+            <div className="learn-card">
+              <CalendarClock size={22} />
+              <strong>Exam tomorrow?</strong>
+              <span className="small muted">Open a pack’s cram plan, the exam coach or a mock paper in the examiner’s style.</span>
+              {pick ? (
+                <div className="row" style={{ gap: 6 }}>
+                  <Link to={`/pack/${pick}/cram`} className="btn small">
+                    Cram plan
+                  </Link>
+                  <Link to={`/pack/${pick}/coach`} className="btn small">
+                    Exam coach
+                  </Link>
+                  <Link to={`/pack/${pick}/paper`} className="btn small">
+                    Mock paper
+                  </Link>
+                </div>
+              ) : (
+                <span className="small muted">Choose the course on the left.</span>
+              )}
+            </div>
+          </div>
+        )}
+        {mode === 'homework' && (
+          <div className="learn-split">
+            <Link to="/homework" className="learn-card hot">
+              <Camera size={24} />
+              <strong>Snap a problem</strong>
+              <span className="small">Homework or a past-paper question: we work it out together on the board, then you try one.</span>
+            </Link>
+            <Link to="/homework" className="learn-card">
+              <StickyNote size={22} />
+              <strong>Type the question</strong>
+              <span className="small muted">Maths, chemistry, physics, accounting, law problems — any subject.</span>
+            </Link>
+          </div>
+        )}
+      </section>
 
-      <div className="quick-links">
-        <Link to="/library" className="quick-link">
-          <LibraryBig size={18} /> <span><strong>Library</strong><span className="small muted">Notes, books and past papers from other students</span></span>
-        </Link>
-        <Link to="/anatomy" className="quick-link">
-          <Bone size={18} /> <span><strong>Anatomy 3D</strong><span className="small muted">The whole body in 3D: tap any part, ask the AI, quiz yourself</span></span>
-        </Link>
-        <Link to="/classes" className="quick-link">
-          <Users size={18} /> <span><strong>Classes</strong><span className="small muted">Study with your class: shared notes and a class ranking</span></span>
-        </Link>
-      </div>
+      {(lessons.length > 0 || stats.dueCards > 0) && (
+        <div className="continue-row">
+          {stats.dueCards > 0 && (
+            <Link to="/review" className="continue-card due">
+              <Layers size={20} />
+              <span>
+                <strong>Review {plural(stats.dueCards, 'card')}</strong>
+                <span className="small muted">Ready now — about {Math.max(1, Math.round(stats.dueCards * 0.2))} min</span>
+              </span>
+              <ArrowRight size={18} />
+            </Link>
+          )}
+          {lessons.slice(0, stats.dueCards > 0 ? 2 : 3).map((l) => (
+            <Link key={l.id} to={`/tutor/${l.id}`} className="continue-card">
+              <Play size={18} />
+              <span>
+                <strong>{l.title}</strong>
+                <span className="continue-bar">
+                  <span style={{ width: `${Math.round(((l.step + 1) / Math.max(1, l.steps)) * 100)}%` }} />
+                </span>
+              </span>
+              <ArrowRight size={18} />
+            </Link>
+          ))}
+        </div>
+      )}
 
       {packs.length > 0 && (
         <div className="stats">
@@ -245,6 +401,50 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+      </div>
+      <div className="section">
+        <div className="section-head">
+          <h2>More ways to study</h2>
+        </div>
+        <div className="tools-grid">
+          <Link to="/library" className="tool-tile">
+            <LibraryBig size={22} />
+            <strong>Library</strong>
+            <span className="small muted">Notes, books and past papers</span>
+          </Link>
+          <Link to="/anatomy" className="tool-tile">
+            <Bone size={22} />
+            <strong>Anatomy 3D</strong>
+            <span className="small muted">The whole body, part by part</span>
+          </Link>
+          <Link to="/classes" className="tool-tile">
+            <Users size={22} />
+            <strong>Classes</strong>
+            <span className="small muted">Study with your class</span>
+          </Link>
+          <Link to="/plan" className="tool-tile">
+            <CalendarClock size={22} />
+            <strong>Timetable</strong>
+            <span className="small muted">Sessions planned for you</span>
+          </Link>
+          <Link to="/ranks" className="tool-tile">
+            <Trophy size={22} />
+            <strong>Rankings</strong>
+            <span className="small muted">This week’s top students</span>
+          </Link>
+          {packs.length >= 2 && (
+            <Link to="/quiz/mixed" className="tool-tile">
+              <Shuffle size={22} />
+              <strong>Mixed quiz</strong>
+              <span className="small muted">Questions from all your packs</span>
+            </Link>
+          )}
+          <Link to="/new" className="tool-tile">
+            <Plus size={22} />
+            <strong>New study pack</strong>
+            <span className="small muted">From a file, notes or a topic</span>
+          </Link>
+        </div>
       </div>
     </>
   );

@@ -434,7 +434,7 @@ export default function Anatomy() {
     x.drawImage(gl, 0, 0, W, H);
     const lay = layoutRef.current;
     if (studied && lay) {
-      x.font = '11px Lexend, system-ui, sans-serif';
+      x.font = '11px Nunito, system-ui, sans-serif';
       x.textBaseline = 'middle';
       for (const p of lay.placed) {
         x.strokeStyle = p.facing ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.3)';
@@ -458,9 +458,9 @@ export default function Anatomy() {
     }
     x.textAlign = 'left';
     x.fillStyle = '#ffffff';
-    x.font = '600 15px Lexend, system-ui, sans-serif';
+    x.font = '600 15px Nunito, system-ui, sans-serif';
     x.fillText(studied ? `${studied.name}${sideLabel(studied)}` : sel ? sel.name : 'Anatomy 3D', 14, 22);
-    x.font = '10px Lexend, system-ui, sans-serif';
+    x.font = '10px Nunito, system-ui, sans-serif';
     x.fillStyle = 'rgba(255,255,255,.7)';
     x.fillText('Charis Study · Anatomy 3D · model: Z-Anatomy (CC BY-SA 4.0), BodyParts3D © DBCLS (CC BY-SA 2.1 JP)', 14, H - 12);
     c.toBlob((blob) => {

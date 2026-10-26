@@ -5,7 +5,13 @@ import { ChevronRight } from 'lucide-react';
 export function Logo({ size = 32 }: { size?: number }) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="#2346B8" />
+      <defs>
+        <linearGradient id="charis-logo-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#7B5CFF" />
+          <stop offset="1" stopColor="#19B8E6" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="18" fill="url(#charis-logo-g)" />
       <path d="M14 46 L50 28" stroke="#FFE45C" strokeWidth="11" strokeLinecap="round" opacity=".95" />
       <path d="M20 18h17a9 9 0 0 1 9 9v19H29a9 9 0 0 1-9-9z" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinejoin="round" />
       <path d="M27 28h12M27 35h9" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
