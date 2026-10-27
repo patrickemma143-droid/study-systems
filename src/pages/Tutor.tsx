@@ -1,17 +1,21 @@
-// The whiteboard tutor: a lesson taught step by step on a board, in a natural voice, that the
-// student can stop at any moment to ask a question. Ends with practice that turns into flashcards.
+// The whiteboard tutor: a full-screen lesson taught step by step on a wide board, in the voice the
+// student chose. The student can talk to it (mic) or type at any moment, answers quick checks on
+// the board, and finishes with practice that turns into flashcards.
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Captions, CheckCircle2, ChevronLeft, ChevronRight, Hand, Layers, Mic, Pause, Play, RotateCcw, Send, Sparkles, Volume2, VolumeX, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Keyboard, Layers, LocateFixed, Maximize2, Mic, MicOff, Pause, Play, RotateCcw, Send, Settings2, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { api } from '../api';
 import { useToast } from '../components/ui';
-import Board, { type ShownItem } from '../components/Board';
+import Board, { type QuizEl, type ShownItem } from '../components/Board';
 import { TutorFace } from '../components/TutorFace';
+import { TutorPicker } from '../components/TutorPicker';
 import { useAiStatus, updateAiUsage, left } from '../lib/ai';
-import { Narrator, type Track, type VoiceMode } from '../lib/tutor/narrator';
-import { dictationSupported, startDictation } from '../lib/speech';
+import { Narrator, type Track } from '../lib/tutor/narrator';
+import { listenOnce, matchOption, recognitionSupported, recordWav, recordingSupported, type Listening } from '../lib/tutor/listen';
+import { useTutorPrefs } from '../lib/tutor/prefs';
 import { useStudyTimer } from '../lib/usePack';
-import type { TutorLesson, TutorStep } from '../../shared/tutor';
+import type { BoardItem, Check, TutorLesson, TutorStep } from '../../shared/tutor';
+import { DEFAULT_PREFS, tutorById, type TutorPrefs } from '../../shared/tutors';
 
 interface LessonReply {
   id: number;
@@ -23,9 +27,12 @@ interface LessonReply {
   next: { chunk: number; title: string } | null;
   voice: boolean;
 }
-type PlayStep = TutorStep & { group: string; lessonIndex: number };
+/** A step as played: lesson steps, plus answers to the student's questions put in between. */
+type PlayStep = TutorStep & { lessonIndex: number; asked?: boolean };
+type Phase = 'ready' | 'playing' | 'paused' | 'waiting' | 'done';
 
-const MODE_LABEL: Record<string, string> = { topic: 'Topic', lesson: 'From your notes', exam: 'Exam prep', homework: 'Homework', text: 'Your material' };
+const PRAISE = ['Exactly right!', 'Yes, well done!', 'Spot on!', 'That’s it!', 'Great — correct!'];
+const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
 export default function Tutor() {
   const { id } = useParams();
@@ -36,10 +43,12 @@ export default function Tutor() {
 function TutorStart() {
   const [params] = useSearchParams();
   const nav = useNavigate();
+  const { prefs } = useTutorPrefs();
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
   const mode = params.get('mode') || 'topic';
   const what = mode === 'topic' ? params.get('topic') || '' : mode === 'exam' ? 'your exam' : 'your lesson';
+  const persona = tutorById(prefs?.tutor);
 
   const start = useCallback(() => {
     setError(null);
@@ -65,36 +74,34 @@ function TutorStart() {
 
   return (
     <div className="tutor-start">
-      <div className="board tutor-warm">
-        <div className="board-inner">
-          <TutorFace speaking={!error} size={72} />
-          {error ? (
-            <>
-              <h2>That lesson didn’t start</h2>
-              <p className="muted">{error}</p>
-              <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
-                <button className="btn primary" onClick={start}>
-                  <RotateCcw size={16} /> Try again
-                </button>
-                <Link to="/home" className="btn">
-                  Home
-                </Link>
-              </div>
-            </>
-          ) : (
-            <>
-              <h2 className="hand-title">Getting the board ready…</h2>
-              <p className="muted">
-                Planning a lesson on <strong>{what}</strong>. This takes about 20 seconds the first time; after that it opens instantly for everyone.
-              </p>
-              <div className="tutor-dots" aria-hidden>
-                <span />
-                <span />
-                <span />
-              </div>
-            </>
-          )}
-        </div>
+      <div className="tutor-warm">
+        <TutorFace speaking={!error} size={84} look={persona.look} />
+        {error ? (
+          <>
+            <h2>That lesson didn’t start</h2>
+            <p className="muted">{error}</p>
+            <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+              <button className="btn primary" onClick={start}>
+                <RotateCcw size={16} /> Try again
+              </button>
+              <Link to="/home" className="btn">
+                Home
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="hand-title">{persona.name} is getting the board ready…</h2>
+            <p className="muted">
+              Planning a lesson on <strong>{what}</strong>. This takes about 20 seconds the first time; after that it opens instantly for everyone.
+            </p>
+            <div className="tutor-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -105,51 +112,66 @@ function TutorPlayer({ id }: { id: number }) {
   const toast = useToast();
   const nav = useNavigate();
   const ai = useAiStatus();
+  const { prefs: savedPrefs, natural, save: savePrefs } = useTutorPrefs();
+  const prefs: TutorPrefs = savedPrefs || DEFAULT_PREFS;
+  const persona = tutorById(prefs.tutor);
+
   const [data, setData] = useState<LessonReply | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<PlayStep[]>([]);
+  const stepsRef = useRef<PlayStep[]>([]);
   const [cur, setCur] = useState(0);
   const [revealed, setRevealed] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [done, setDone] = useState(false);
+  const [phase, setPhase] = useState<Phase>('ready');
   const [speaking, setSpeaking] = useState(false);
-  const [captions, setCaptions] = useState(true);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
-    try {
-      return (localStorage.getItem('tutor-voice') as VoiceMode) || 'natural';
-    } catch {
-      return 'natural';
-    }
-  });
-  const [rate, setRate] = useState(1);
-  const [askOpen, setAskOpen] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [quizzes, setQuizzes] = useState<Record<string, QuizEl>>({});
+  const quizRef = useRef<Record<string, QuizEl>>({});
+  const [inPractice, setInPractice] = useState(false);
+  const [awaiting, setAwaiting] = useState<string | null>(null);
+  const answerFn = useRef<((i: number) => void) | null>(null);
+  const [follow, setFollow] = useState(true);
+  const [overview, setOverview] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
-  const [listening, setListening] = useState(false);
-  const stopDictation = useRef<(() => void) | null>(null);
+  const [listening, setListening] = useState<'speech' | 'record' | null>(null);
+  const [heard, setHeard] = useState('');
+  const [result, setResult] = useState<{ score: number; total: number; points: number } | null>(null);
+  const [showEnd, setShowEnd] = useState(false);
   const narrator = useRef<Narrator | null>(null);
   const track = useRef<{ step: number; t: Track; offsets: number[] } | null>(null);
-  const qCount = useRef(0);
-  const endRef = useRef<HTMLDivElement>(null);
+  const runToken = useRef(0);
+  /** each narration has an id; bumping it cuts the current one short */
+  const narrId = useRef(0);
+  const awaitingRef = useRef<string | null>(null);
+  const pausedRef = useRef(false);
+  const resumeFn = useRef<(() => void) | null>(null);
+  const listenRef = useRef<Listening | null>(null);
+  const recRef = useRef<{ stop: () => Promise<string> } | null>(null);
 
   useEffect(() => {
     api<LessonReply>(`/tutor/lessons/${id}`)
       .then((r) => {
         setData(r);
-        setSteps(r.lesson.steps.map((s, i) => ({ ...s, group: 'L', lessonIndex: i })));
-        const resume = Math.min(r.step, r.lesson.steps.length - 1);
-        setCur(resume > 0 && resume < r.lesson.steps.length - 1 ? resume : 0);
+        const s = r.lesson.steps.map((x, i) => ({ ...x, lessonIndex: i }));
+        stepsRef.current = s;
+        setSteps(s);
+        setCaption(r.lesson.steps[0]?.say || '');
       })
       .catch((e) => setError(e.message));
+    return () => {
+      runToken.current++;
+    };
   }, [id]);
 
-  // the voice: natural if the site has it, else the phone's voice
+  // the voice: the chosen tutor's natural voice, the phone's voice, or captions only
   useEffect(() => {
     if (!data) return;
-    const mode: VoiceMode = voiceMode === 'natural' && !data.voice ? 'device' : voiceMode;
-    const n = new Narrator(mode, (reason) => toast(`${reason} Using your phone’s voice instead.`));
-    n.rate = rate;
+    const mode = prefs.sound === 'natural' && !data.voice ? 'device' : prefs.sound;
+    const n = new Narrator(mode, (reason) => toast(`${reason} Using your phone’s voice instead.`), { name: persona.voice, accent: prefs.accent });
+    n.rate = prefs.rate;
     narrator.current = n;
     return () => {
       track.current?.t.stop();
@@ -157,200 +179,327 @@ function TutorPlayer({ id }: { id: number }) {
       n.dispose();
       narrator.current = null;
     };
-  }, [data, voiceMode]);
-  useEffect(() => {
-    if (narrator.current) narrator.current.rate = rate;
-  }, [rate]);
+  }, [data, prefs.sound, prefs.accent, prefs.tutor, prefs.rate]);
 
-  const step = steps[cur];
+  const setQuiz = (q: QuizEl) => {
+    quizRef.current = { ...quizRef.current, [q.qid]: q };
+    setQuizzes(quizRef.current);
+  };
 
-  // play the current step: voice, then board items written in time with it
-  useEffect(() => {
+  /** Say something, writing `items` board items of step `stepIndex` in time with it. Resolves when done. */
+  const narrate = useCallback(async (text: string, token: number, stepIndex = -1, items = 0) => {
     const n = narrator.current;
-    if (!playing || !step || !n || done) return;
-    let cancelled = false;
-    let raf = 0;
-    (async () => {
-      let tr = track.current?.step === cur && !track.current.t.ended ? track.current : null;
-      if (!tr) {
-        const t = await n.track(step.say);
-        if (cancelled) {
+    if (!n || token !== runToken.current) return false;
+    const me = ++narrId.current;
+    setCaption(text);
+    const t = await n.track(text);
+    if (token !== runToken.current) {
+      t.stop();
+      return false;
+    }
+    const weights = Array.from({ length: items }, (_, i) => {
+      const b = stepsRef.current[stepIndex]?.board[i];
+      if (!b) return 1;
+      return b.t === 'circle' || b.t === 'underline' || b.t === 'arrow' || b.t === 'clear' ? 0.4 : b.t === 'sketch' || b.t === 'pie' || b.t === 'bars' ? 3 : 1 + Math.min(3, JSON.stringify(b).length / 80);
+    });
+    const total = weights.reduce((a, b) => a + b, 0) || 1;
+    const span = t.duration * 0.82;
+    let acc = 0.15;
+    const offsets = weights.map((w) => {
+      const o = acc;
+      acc += (w / total) * span;
+      return o;
+    });
+    track.current = { step: stepIndex, t, offsets };
+    const next = stepsRef.current[stepIndex + 1];
+    if (next) n.prefetch(next.say);
+    return new Promise<boolean>((resolve) => {
+      let raf = 0;
+      const tick = () => {
+        if (token !== runToken.current || me !== narrId.current) {
+          cancelAnimationFrame(raf);
           t.stop();
+          setSpeaking(false);
+          resolve(false);
           return;
         }
-        // spread the board writing over the spoken part, longer items getting more time
-        const weights = step.board.map((b) => (b.t === 'circle' || b.t === 'underline' || b.t === 'arrow' || b.t === 'clear' ? 0.4 : 1 + Math.min(3, JSON.stringify(b).length / 80)));
-        const total = weights.reduce((a, b) => a + b, 0) || 1;
-        const span = t.duration * 0.82;
-        let acc = 0.15;
-        const offsets = weights.map((w) => {
-          const o = acc;
-          acc += (w / total) * span;
-          return o;
-        });
-        tr = { step: cur, t, offsets };
-        track.current = tr;
-        t.onEnd(() => {
-          setSpeaking(false);
-          setRevealed(step.board.length);
-          window.setTimeout(() => {
-            if (cancelled) return;
-            track.current = null;
-            if (cur < steps.length - 1) {
-              setCur(cur + 1);
-              setRevealed(0);
-            } else {
-              setDone(true);
-              setPlaying(false);
-            }
-          }, 650);
-        });
-      }
-      const next = steps[cur + 1];
-      if (next) n.prefetch(next.say);
-      tr.t.play();
-      setSpeaking(true);
-      const tick = () => {
-        const tt = tr!.t.time();
-        const count = tr!.offsets.filter((o) => o <= tt).length;
-        setRevealed((r) => (count > r ? count : r));
+        if (stepIndex >= 0 && items) {
+          const count = offsets.filter((o) => o <= t.time()).length;
+          setRevealed((r) => (count > r ? count : r));
+        }
         raf = requestAnimationFrame(tick);
       };
-      tick();
-    })();
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      if (track.current?.step === cur) track.current.t.pause();
-      setSpeaking(false);
-    };
-  }, [playing, cur, steps, done]);
-
-  // remember the place in the lesson
-  useEffect(() => {
-    if (!data || !step || step.group !== 'L') return;
-    const t = window.setTimeout(() => {
-      void api(`/tutor/lessons/${id}`, { method: 'PATCH', body: { step: step.lessonIndex } }).catch(() => {});
-    }, 800);
-    return () => {
-      window.clearTimeout(t);
-    };
-  }, [cur, data]);
-
-  // what is on the board: this part (lesson, or the answer to a question) since the last wipe
-  const shown: ShownItem[] = useMemo(() => {
-    if (!step) return [];
-    const out: ShownItem[] = [];
-    steps.forEach((s, si) => {
-      if (si > cur || s.group !== step.group) return;
-      const upto = si < cur ? s.board.length : revealed;
-      s.board.slice(0, upto).forEach((item, ii) => {
-        let draw = 0;
-        if (si === cur && track.current?.step === cur) {
-          const o = track.current.offsets;
-          draw = Math.max(0.45, Math.min(1.6, (o[ii + 1] ?? track.current.t.duration) - o[ii]));
-        }
-        out.push({ key: `${si}-${ii}`, item, draw });
+      t.onEnd(() => {
+        cancelAnimationFrame(raf);
+        setSpeaking(false);
+        if (stepIndex >= 0) setRevealed(items);
+        window.setTimeout(() => resolve(token === runToken.current), 450);
       });
+      if (pausedRef.current) {
+        resumeFn.current = () => {
+          t.play();
+          setSpeaking(true);
+        };
+      } else {
+        t.play();
+        setSpeaking(true);
+      }
+      tick();
     });
-    const lastClear = out.map((x) => x.item.t).lastIndexOf('clear');
-    return out.slice(lastClear + 1);
-  }, [steps, cur, revealed, step]);
+  }, []);
 
+  /** Write a question on the board, read it out, wait for the answer, then react to it. */
+  const askCheck = useCallback(
+    async (qid: string, check: Check, label: string, token: number) => {
+      const existing = quizRef.current[qid];
+      if (existing && existing.chosen !== null) return true;
+      setQuiz({ t: 'quiz', qid, label, q: check.q, options: check.options, answer: check.answer, chosen: null, explain: check.explain });
+      // the student can answer as soon as the question is on the board, even while it is read out
+      awaitingRef.current = qid;
+      setAwaiting(qid);
+      const answered = new Promise<number>((resolve) => {
+        answerFn.current = resolve;
+      });
+      const first = await Promise.race([answered.then(() => 'answered' as const), narrate(`${label}. ${check.q}`, token).then((ok) => (ok ? ('read' as const) : ('stopped' as const)))]);
+      if (first === 'stopped' && token !== runToken.current) return false;
+      if (first === 'answered') narrId.current++; // stop reading the question
+      else {
+        setCaption(`${check.q} — tap your answer${recognitionSupported ? ', or say it' : ''}.`);
+        setPhase('waiting');
+      }
+      const chosen = await answered;
+      answerFn.current = null;
+      awaitingRef.current = null;
+      setAwaiting(null);
+      if (token !== runToken.current) return false;
+      setQuiz({ ...quizRef.current[qid], chosen });
+      setPhase('playing');
+      const ok = chosen === check.answer;
+      const feedback = ok ? `${pick(PRAISE)} ${check.explain}` : `Not quite. The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`;
+      return narrate(feedback, token);
+    },
+    [narrate],
+  );
+
+  /** Play the lesson from a step to the end: steps, checks, then practice on the board. */
+  const runFrom = useCallback(
+    async (from: number) => {
+      const token = ++runToken.current;
+      track.current?.t.stop();
+      track.current = null;
+      pausedRef.current = false;
+      setShowEnd(false);
+      setOverview(false);
+      setFollow(true);
+      setPhase('playing');
+      for (let i = Math.max(0, from); i < stepsRef.current.length; i++) {
+        if (token !== runToken.current) return;
+        const s = stepsRef.current[i];
+        setCur(i);
+        setRevealed(0);
+        setInPractice(false);
+        if (!(await narrate(s.say, token, i, s.board.length))) return;
+        if (s.check && !(await askCheck(`c${i}`, s.check, 'Quick check', token))) return;
+        if (!s.asked && data) void api(`/tutor/lessons/${id}`, { method: 'PATCH', body: { step: s.lessonIndex } }).catch(() => {});
+      }
+      // practice on the board
+      const practice = data?.lesson.practice || [];
+      if (practice.length) {
+        setInPractice(true);
+        if (!(await narrate(`Now let's see what you remember. ${practice.length} questions.`, token))) return;
+        for (let p = 0; p < practice.length; p++) if (!(await askCheck(`p${p}`, practice[p], `Question ${p + 1} of ${practice.length}`, token))) return;
+        const answers = practice.map((_, p) => quizRef.current[`p${p}`]?.chosen ?? -1);
+        try {
+          const r = await api<{ score: number; total: number; points: number }>(`/tutor/lessons/${id}/practice`, { body: { answers } });
+          setResult(r);
+          if (token === runToken.current) await narrate(r.score === r.total ? `All ${r.total} right. Brilliant work!` : `You got ${r.score} out of ${r.total}. Save these as flashcards and they'll come back before you forget.`, token);
+        } catch {
+          /* points are a bonus; the lesson still ends */
+        }
+      }
+      if (token !== runToken.current) return;
+      setPhase('done');
+      setOverview(true);
+      setShowEnd(true);
+      setCaption('Lesson complete. Look over the whole board, or save it as flashcards.');
+    },
+    [narrate, askCheck, data, id],
+  );
+
+  function pause() {
+    if (phase !== 'playing') return;
+    pausedRef.current = true;
+    track.current?.t.pause();
+    setSpeaking(false);
+    setPhase('paused');
+  }
+  function play() {
+    if (phase === 'ready' || phase === 'done') {
+      void runFrom(phase === 'done' ? 0 : Math.min(data?.step || 0, stepsRef.current.length - 1));
+      return;
+    }
+    if (phase === 'paused') {
+      pausedRef.current = false;
+      setPhase('playing');
+      setFollow(true);
+      if (resumeFn.current) {
+        resumeFn.current();
+        resumeFn.current = null;
+      } else if (track.current && !track.current.t.ended) {
+        track.current.t.play();
+        setSpeaking(true);
+      } else void runFrom(cur);
+    }
+  }
   function go(to: number) {
-    track.current?.t.stop();
-    track.current = null;
-    setDone(false);
-    const target = Math.max(0, Math.min(steps.length - 1, to));
-    setCur(target);
-    // paused: show the whole step; playing: it is written out again with the voice
-    setRevealed(playing ? 0 : steps[target]?.board.length || 0);
-  }
-  function togglePlay() {
-    if (!started) setStarted(true);
-    if (done) {
-      setDone(false);
-      go(0);
-      setPlaying(true);
-      return;
-    }
-    setPlaying((p) => !p);
-  }
-  function skip() {
-    if (cur >= steps.length - 1) {
-      track.current?.t.stop();
-      track.current = null;
-      setRevealed(step?.board.length || 0);
-      setDone(true);
-      setPlaying(false);
-      return;
-    }
-    go(cur + 1);
+    answerFn.current = null;
+    awaitingRef.current = null;
+    setAwaiting(null);
+    // past the last step: straight on to the practice
+    void runFrom(Math.max(0, Math.min(stepsRef.current.length, to)));
   }
 
-  // "I have a question"
-  function openAsk() {
-    setPlaying(false);
-    setAskOpen(true);
+  function answer(qid: string, i: number) {
+    if (awaitingRef.current === qid && answerFn.current) answerFn.current(i);
   }
-  async function ask(q: string, e?: FormEvent) {
-    e?.preventDefault();
-    const text = q.trim();
-    if (!text || !step) return;
+
+  /** "I have a question": the answer is taught on a fresh part of the board, then the lesson goes on. */
+  async function ask(text: string, audio?: string) {
+    const step = stepsRef.current[cur];
+    if (!step || (!text.trim() && !audio)) return;
     setAsking(true);
-    stopDictation.current?.();
+    setCaption(text ? `You asked: ${text}` : 'Listening to your question…');
     try {
-      const r = await api<{ steps: TutorStep[]; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text } });
+      const r = await api<{ steps: TutorStep[]; heard?: string; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text.trim() || undefined, audio } });
       updateAiUsage(r.usage);
-      const group = `Q${++qCount.current}`;
-      const extra = r.steps.map((s) => ({ ...s, group, lessonIndex: step.lessonIndex }));
-      track.current?.t.stop();
-      track.current = null;
-      setSteps((all) => [...all.slice(0, cur + 1), ...extra, ...all.slice(cur + 1)]);
-      setRevealed(0);
-      setCur(cur + 1);
-      setDone(false);
-      setAskOpen(false);
+      const q = text.trim() || r.heard || 'your question';
+      const heading: BoardItem = { t: 'heading', text: `You asked: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` };
+      const extra: PlayStep[] = r.steps.map((s, k) => ({ ...s, board: k === 0 ? [heading, ...s.board.filter((b) => b.t !== 'clear')] : s.board, lessonIndex: step.lessonIndex, asked: true }));
+      // finish writing this step, then teach the answer straight after it
+      setRevealed(step.board.length);
+      const all = [...stepsRef.current.slice(0, cur + 1), ...extra, ...stepsRef.current.slice(cur + 1)];
+      stepsRef.current = all;
+      setSteps(all);
+      setTyping(false);
       setQuestion('');
-      setStarted(true);
-      setPlaying(true);
+      void runFrom(cur + 1);
     } catch (err: any) {
       toast(err.message);
     } finally {
       setAsking(false);
+      setHeard('');
     }
-  }
-  function dictate() {
-    if (listening) {
-      stopDictation.current?.();
-      return;
-    }
-    setListening(true);
-    stopDictation.current = startDictation(
-      (t) => setQuestion((q) => (q ? `${q} ${t}` : t)),
-      () => setListening(false),
-    );
   }
 
-  // keyboard: space play/pause, arrows step, Q ask
+  /** The mic: answer a check by voice, or ask anything. */
+  async function mic() {
+    if (listening === 'speech') {
+      listenRef.current?.stop();
+      return;
+    }
+    if (listening === 'record') {
+      const rec = recRef.current;
+      recRef.current = null;
+      setListening(null);
+      if (rec) void ask('', await rec.stop());
+      return;
+    }
+    const checking = awaitingRef.current;
+    if (!checking) pause();
+    if (recognitionSupported) {
+      setListening('speech');
+      setHeard('');
+      listenRef.current = listenOnce({
+        onInterim: (t) => setHeard(t),
+        onFinal: (t) => {
+          if (checking) {
+            const q = quizRef.current[checking];
+            const i = q ? matchOption(t, q.options) : -1;
+            if (i >= 0) answer(checking, i);
+            else toast(`I heard “${t}”. Tap the answer you mean.`);
+          } else void ask(t);
+        },
+        onEnd: () => setListening(null),
+        onError: (m) => toast(m),
+      });
+      return;
+    }
+    if (checking) return toast('Tap your answer on the board.');
+    if (!recordingSupported) {
+      setTyping(true);
+      return;
+    }
+    try {
+      recRef.current = await recordWav();
+      setListening('record');
+      setHeard('Recording… tap the mic again when you’ve finished.');
+    } catch {
+      toast('Allow the microphone to talk to your tutor, or type your question.');
+    }
+  }
+
+  function toggleSound() {
+    const next: TutorPrefs = { ...prefs, sound: prefs.sound === 'silent' ? (natural ? 'natural' : 'device') : 'silent' };
+    runToken.current++;
+    void savePrefs(next).then(() => {
+      if (phase === 'playing' || phase === 'waiting') window.setTimeout(() => void runFrom(cur), 50);
+    });
+  }
+
+  // keyboard: space play/pause, arrows step, Q type a question
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || askOpen) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || typing || picker) return;
       if (e.key === ' ') {
         e.preventDefault();
-        togglePlay();
-      } else if (e.key === 'ArrowRight') skip();
+        if (phase === 'playing') pause();
+        else play();
+      } else if (e.key === 'ArrowRight') {
+        if (!inPractice && phase !== 'done') go(cur + 1);
+      }
       else if (e.key === 'ArrowLeft') go(cur - 1);
-      else if (e.key.toLowerCase() === 'q') openAsk();
+      else if (e.key.toLowerCase() === 'q') {
+        pause();
+        setTyping(true);
+      }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
   });
 
-  useEffect(() => {
-    if (done) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [done]);
+  // everything written so far, with the quick checks after their steps and the practice at the end
+  const shown: ShownItem[] = useMemo(() => {
+    const out: ShownItem[] = [];
+    steps.forEach((s, si) => {
+      if (si > cur && !(phase === 'done' || inPractice)) return;
+      const upto = si < cur || phase === 'done' || inPractice ? s.board.length : revealed;
+      s.board.slice(0, upto).forEach((item, ii) => {
+        let draw = 0;
+        if (si === cur && track.current?.step === cur && !inPractice) {
+          const o = track.current.offsets;
+          draw = Math.max(0.45, Math.min(1.8, (o[ii + 1] ?? track.current.t.duration) - o[ii]));
+          if (item.t === 'sketch' || item.t === 'pie' || item.t === 'bars') draw = Math.max(1.6, Math.min(4, draw * 1.5));
+        }
+        out.push({ key: `${si}-${ii}`, item, draw });
+      });
+      const q = quizzes[`c${si}`];
+      if (q) out.push({ key: `q-c${si}`, item: q, draw: 0 });
+    });
+    const practice = data?.lesson.practice || [];
+    if (practice.some((_, p) => quizzes[`p${p}`])) {
+      out.push({ key: 'practice-h', item: { t: 'heading', text: 'Check yourself' }, draw: 0 });
+      practice.forEach((_, p) => {
+        const q = quizzes[`p${p}`];
+        if (q) out.push({ key: `q-p${p}`, item: q, draw: 0 });
+      });
+    }
+    return out;
+  }, [steps, cur, revealed, quizzes, phase, inPractice, data]);
+  // the camera follows the newest thing written (circles and arrows sit on earlier items)
+  const focus = [...shown].reverse().find((x) => !['circle', 'underline', 'arrow', 'clear'].includes(x.item.t))?.key ?? null;
 
   if (error) {
     return (
@@ -363,163 +512,164 @@ function TutorPlayer({ id }: { id: number }) {
       </div>
     );
   }
-  if (!data || !step) return <div className="tutor-start muted">Opening the lesson…</div>;
+  if (!data || !steps.length) return <div className="tutor-start muted">Opening the lesson…</div>;
 
+  const step = steps[cur];
   const lessonSteps = data.lesson.steps.length;
-  const inAnswer = step.group !== 'L';
   const back = data.packId ? `/pack/${data.packId}` : '/home';
-  const voiceLabel = voiceMode === 'natural' ? (data.voice ? 'Natural voice' : 'Phone voice') : voiceMode === 'device' ? 'Phone voice' : 'No sound';
+  const mins = Math.max(2, Math.round(data.lesson.steps.reduce((n, s) => n + s.say.split(/\s+/).length, 0) / 150 + lessonSteps * 0.2));
+  const checks = data.lesson.steps.filter((s) => s.check).length;
 
   return (
-    <div className="tutor">
-      <div className="tutor-top">
-        <Link to={back} className="btn icon ghost" aria-label="Back">
-          <ArrowLeft size={18} />
+    <div className="tutor-full">
+      <header className="tf-top">
+        <Link to={back} className="btn icon ghost" aria-label="Leave the lesson">
+          <X size={20} />
         </Link>
-        <div className="tutor-title">
-          <span className="chip small">{MODE_LABEL[data.lesson.mode] || 'Lesson'}</span>
+        <div className="tf-title">
           <h1>{data.lesson.title}</h1>
-        </div>
-        <div className="tutor-settings">
-          <button
-            className="btn small ghost"
-            onClick={() => {
-              const order: VoiceMode[] = ['natural', 'device', 'silent'];
-              const next = order[(order.indexOf(voiceMode) + 1) % order.length];
-              try {
-                localStorage.setItem('tutor-voice', next);
-              } catch {
-                /* fine */
-              }
-              setPlaying(false);
-              setVoiceMode(next);
-            }}
-            title="Change the voice"
-          >
-            {voiceMode === 'silent' ? <VolumeX size={15} /> : <Volume2 size={15} />} {voiceLabel}
-          </button>
-          <button className="btn small ghost" onClick={() => setRate((r) => (r >= 1.5 ? 1 : +(r + 0.25).toFixed(2)))} title="Speed">
-            {rate}×
-          </button>
-          <button className="btn small ghost" aria-pressed={captions} onClick={() => setCaptions((c) => !c)} title="Captions">
-            <Captions size={15} />
-          </button>
-        </div>
-      </div>
-
-      <div className="tutor-progress" aria-label={`Step ${step.lessonIndex + 1} of ${lessonSteps}`}>
-        {data.lesson.steps.map((_, i) => (
-          <button key={i} className={i < step.lessonIndex || (i === step.lessonIndex && done) ? 'past' : i === step.lessonIndex ? 'now' : ''} onClick={() => go(steps.findIndex((s) => s.group === 'L' && s.lessonIndex === i))} aria-label={`Go to step ${i + 1}`} />
-        ))}
-      </div>
-
-      <div className={`tutor-stage ${inAnswer ? 'answering' : ''}`}>
-        {inAnswer && (
-          <div className="tutor-qbanner">
-            <Hand size={14} /> Answering your question
+          <div className="tf-progress" aria-label={`Step ${step.lessonIndex + 1} of ${lessonSteps}`}>
+            {data.lesson.steps.map((_, i) => (
+              <span key={i} className={i < step.lessonIndex || phase === 'done' ? 'past' : i === step.lessonIndex ? 'now' : ''} />
+            ))}
           </div>
-        )}
-        <Board items={shown} />
-        {!started && (
-          <button className="tutor-startbtn" onClick={togglePlay}>
+        </div>
+        <button className="btn icon ghost" onClick={() => setOverview((o) => !o)} aria-pressed={overview} title="See the whole board" aria-label="See the whole board">
+          <Maximize2 size={18} />
+        </button>
+        <button className="btn icon ghost" onClick={() => setPicker(true)} title="Choose your tutor and voice" aria-label="Choose your tutor and voice">
+          <Settings2 size={19} />
+        </button>
+      </header>
+
+      <div className="tf-stage">
+        <Board
+          items={shown}
+          focus={focus}
+          follow={follow && !overview}
+          overview={overview}
+          onUserMove={() => {
+            setFollow(false);
+            setOverview(false);
+          }}
+          onAnswer={answer}
+        />
+        {phase === 'ready' && (
+          <button className="tutor-startbtn" onClick={play}>
+            <TutorFace look={persona.look} size={92} />
             <span className="tutor-startcircle">
               <Play size={30} />
             </span>
-            <span>{data.step > 0 ? 'Continue the lesson' : 'Start the lesson'}</span>
+            <span>{data.step > 0 ? `Continue with ${persona.name}` : `Start the lesson with ${persona.name}`}</span>
             <span className="small muted">
-              {lessonSteps} steps · about {Math.max(2, Math.round(data.lesson.steps.reduce((n, s) => n + s.say.split(/\s+/).length, 0) / 150 + lessonSteps * 0.15))} min
+              {lessonSteps} steps{checks ? ` · ${checks} quick checks` : ''} · about {mins} min · talk to {persona.name} any time with the mic
             </span>
           </button>
         )}
+        {!follow && !overview && phase !== 'ready' && (
+          <button className="tf-follow" onClick={() => setFollow(true)}>
+            <LocateFixed size={15} /> Follow {persona.name}
+          </button>
+        )}
+        {showEnd && <LessonEnd id={id} data={data} result={result} onReplay={() => go(0)} onNext={() => data.next && data.packId && nav(`/tutor/new?mode=lesson&pack=${data.packId}&chunk=${data.next.chunk}`)} onClose={() => setShowEnd(false)} />}
       </div>
 
-      <div className="tutor-bar">
-        <div className="tutor-caption">
-          <TutorFace speaking={speaking} size={46} />
-          <p aria-live="polite">{captions ? step.say : <span className="muted">Captions off</span>}</p>
-        </div>
-        <div className="tutor-controls">
-          <button className="btn icon" onClick={() => go(cur - 1)} disabled={cur === 0} aria-label="Previous step">
-            <ChevronLeft size={20} />
-          </button>
-          <button className="btn icon primary tutor-play" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
-            {playing ? <Pause size={22} /> : <Play size={22} />}
-          </button>
-          <button className="btn icon" onClick={skip} aria-label="Next step">
-            <ChevronRight size={20} />
-          </button>
-          <button className="btn tutor-ask" onClick={openAsk} disabled={!ai?.enabled}>
-            <Hand size={17} /> I have a question
-          </button>
-        </div>
-      </div>
-
-      {askOpen && (
-        <div className="sheet tutor-askbox">
-          <form onSubmit={(e) => ask(question, e)} className="stack">
-            <label className="label" htmlFor="tq">
-              What would you like to ask?
-            </label>
-            <div className="row" style={{ gap: 6 }}>
-              <input id="tq" className="input" style={{ flex: 1 }} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Why does that step work?" autoFocus disabled={asking} />
-              {dictationSupported && (
-                <button type="button" className={`btn icon ${listening ? 'primary' : ''}`} onClick={dictate} aria-label={listening ? 'Stop listening' : 'Ask by voice'}>
-                  <Mic size={17} />
-                </button>
-              )}
-              <button className="btn primary" disabled={asking || !question.trim()}>
-                <Send size={16} /> {asking ? 'Thinking…' : 'Ask'}
+      {typing && (
+        <form
+          className="tf-type"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            void ask(question);
+          }}
+        >
+          <div className="row" style={{ gap: 6 }}>
+            <input className="input" style={{ flex: 1 }} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={`Ask ${persona.name} anything…`} autoFocus disabled={asking} aria-label="Your question" />
+            <button className="btn primary" disabled={asking || !question.trim()} aria-label="Ask">
+              <Send size={16} /> {asking ? '…' : ''}
+            </button>
+            <button type="button" className="btn icon ghost" onClick={() => setTyping(false)} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            {['Explain that again, more simply', 'Give me another example', 'Why does that work?', 'How would this come in an exam?'].map((c) => (
+              <button key={c} type="button" className="chip" onClick={() => void ask(c)} disabled={asking}>
+                {c}
               </button>
-            </div>
-            <div className="row" style={{ gap: 6 }}>
-              {['Explain that again, more simply', 'Give me another example', 'Why does that work?', 'How would this come in an exam?'].map((c) => (
-                <button key={c} type="button" className="chip" onClick={() => ask(c)} disabled={asking}>
-                  {c}
-                </button>
-              ))}
-            </div>
-            <div className="row small muted" style={{ justifyContent: 'space-between' }}>
-              <span>{ai ? `${left(ai, 'tutor')} questions left today` : ''}</span>
-              <button
-                type="button"
-                className="linklike"
-                onClick={() => {
-                  setAskOpen(false);
-                  setPlaying(true);
-                }}
-              >
-                No question, carry on
-              </button>
-            </div>
-          </form>
-        </div>
+            ))}
+          </div>
+          {ai && <span className="small muted">{left(ai, 'tutor')} questions left today</span>}
+        </form>
       )}
 
-      {done && (
-        <div ref={endRef}>
-          <LessonEnd id={id} data={data} onReplay={() => { go(0); setPlaying(true); }} onNext={() => data.next && data.packId && nav(`/tutor/new?mode=lesson&pack=${data.packId}&chunk=${data.next.chunk}`)} />
+      <footer className="tf-bar">
+        <TutorFace look={persona.look} size={48} speaking={speaking} listening={!!listening} />
+        <div className="tf-ctrls">
+          {phase === 'playing' ? (
+            <button className="tf-btn" onClick={pause} aria-label="Pause">
+              <Pause size={20} />
+            </button>
+          ) : (
+            <button className="tf-btn" onClick={play} aria-label="Play" disabled={phase === 'waiting'}>
+              <Play size={20} />
+            </button>
+          )}
+          <button className="tf-btn" onClick={toggleSound} aria-label={prefs.sound === 'silent' ? 'Turn the voice on' : 'Mute the voice'}>
+            {prefs.sound === 'silent' ? <VolumeX size={19} /> : <Volume2 size={19} />}
+          </button>
+          <button className="tf-btn hide-sm" onClick={() => go(cur - 1)} aria-label="Previous step" disabled={cur === 0 || phase === 'ready'}>
+            <ChevronLeft size={20} />
+          </button>
+          <button className="tf-btn hide-sm" onClick={() => go(cur + 1)} aria-label="Next step" disabled={phase === 'ready' || phase === 'done' || inPractice}>
+            <ChevronRight size={20} />
+          </button>
         </div>
+        <p className="tf-caption" aria-live="polite">
+          {listening || asking ? <span className="tf-heard">{heard || (asking ? 'Thinking about your question…' : 'Listening…')}</span> : prefs.captions || prefs.sound === 'silent' ? caption : ''}
+        </p>
+        <div className="tf-talk">
+          <button
+            className="tf-btn"
+            onClick={() => {
+              pause();
+              setTyping((t) => !t);
+            }}
+            aria-label="Type a question"
+            disabled={!ai?.enabled}
+          >
+            <Keyboard size={19} />
+          </button>
+          <button className={`tf-mic ${listening ? 'on' : ''} ${awaiting ? 'waiting' : ''}`} onClick={() => void mic()} aria-label={listening ? 'Stop listening' : awaiting ? 'Say your answer' : `Talk to ${persona.name}`} disabled={!ai?.enabled && !awaiting} title={awaiting ? 'Say your answer' : 'Ask a question out loud'}>
+            {listening ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+        </div>
+      </footer>
+
+      {picker && (
+        <TutorPicker
+          prefs={prefs}
+          natural={natural && data.voice}
+          onClose={() => setPicker(false)}
+          onSave={async (p) => {
+            runToken.current++;
+            await savePrefs(p);
+            toast(`${tutorById(p.tutor).name} will teach you from now on.`);
+            if (phase === 'playing' || phase === 'waiting') window.setTimeout(() => void runFrom(cur), 80);
+            else if (phase !== 'ready' && phase !== 'done') setPhase('paused');
+          }}
+        />
       )}
     </div>
   );
 }
 
-function LessonEnd({ id, data, onReplay, onNext }: { id: number; data: LessonReply; onReplay: () => void; onNext: () => void }) {
+function LessonEnd({ id, data, result, onReplay, onNext, onClose }: { id: number; data: LessonReply; result: { score: number; total: number; points: number } | null; onReplay: () => void; onNext: () => void; onClose: () => void }) {
   const toast = useToast();
   const { lesson } = data;
-  const [picks, setPicks] = useState<number[]>(() => lesson.practice.map(() => -1));
-  const [result, setResult] = useState<{ score: number; total: number; points: number; marked: { right: number; ok: boolean }[] } | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [showTry, setShowTry] = useState(false);
 
-  async function check() {
-    try {
-      setResult(await api(`/tutor/lessons/${id}/practice`, { body: { answers: picks } }));
-    } catch (e: any) {
-      toast(e.message);
-    }
-  }
   async function save() {
     setSaving(true);
     try {
@@ -534,104 +684,63 @@ function LessonEnd({ id, data, onReplay, onNext }: { id: number; data: LessonRep
   }
 
   return (
-    <div className="tutor-end stack">
-      <div className="sheet">
-        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-          <TutorFace size={40} />
-          <h2 style={{ margin: 0 }}>Nice work! Here’s what to remember</h2>
-        </div>
-        {lesson.summary.length > 0 && (
-          <ul className="tutor-summary">
-            {lesson.summary.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-        )}
-        <div className="row" style={{ gap: 8 }}>
-          {saved ? (
-            <Link to={`/pack/${saved}/cards`} className="btn primary">
-              <Layers size={16} /> Review the flashcards
-            </Link>
-          ) : (
-            <button className="btn primary" onClick={save} disabled={saving}>
-              <Layers size={16} /> {saving ? 'Saving…' : 'Save as flashcards'}
-            </button>
-          )}
-          {data.next && (
-            <button className="btn" onClick={onNext}>
-              Next lesson: {data.next.title} <ChevronRight size={16} />
-            </button>
-          )}
-          <button className="btn ghost" onClick={onReplay}>
-            <RotateCcw size={16} /> Watch again
-          </button>
-        </div>
-      </div>
-
+    <div className="tf-end">
+      <button className="btn icon ghost tf-end-close" onClick={onClose} aria-label="Hide and look at the board">
+        <X size={18} />
+      </button>
+      <h2>
+        <Sparkles size={20} /> Lesson complete
+      </h2>
+      {result && (
+        <p className="tf-score">
+          <strong>
+            {result.score} / {result.total}
+          </strong>{' '}
+          in the practice{result.points > 0 ? ` · +${result.points} Memory points` : ''}
+        </p>
+      )}
+      {lesson.summary.length > 0 && (
+        <ul className="tutor-summary">
+          {lesson.summary.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ul>
+      )}
       {lesson.tryNext && (
-        <div className="sheet">
-          <h3>Now you try</h3>
-          <p>{lesson.tryNext.q}</p>
+        <div className="tf-try">
+          <strong>Now you try:</strong> {lesson.tryNext.q}
           {showTry ? (
-            <div className="key-answer" style={{ whiteSpace: 'pre-wrap' }}>
+            <div className="key-answer" style={{ whiteSpace: 'pre-wrap', marginTop: 6 }}>
               {lesson.tryNext.answer}
             </div>
           ) : (
-            <button className="btn small" onClick={() => setShowTry(true)}>
+            <button className="btn small" style={{ marginTop: 6 }} onClick={() => setShowTry(true)}>
               Show the worked answer
             </button>
           )}
         </div>
       )}
-
-      {lesson.practice.length > 0 && (
-        <div className="sheet stack">
-          <h3 style={{ margin: 0 }}>
-            <Sparkles size={17} style={{ verticalAlign: '-3px' }} /> Check you’ve got it
-          </h3>
-          {lesson.practice.map((p, i) => (
-            <div key={i} className="tutor-q">
-              <p className="tutor-qtext">
-                {i + 1}. {p.q}
-              </p>
-              <div className="stack" style={{ gap: 6 }}>
-                {p.options.map((o, j) => {
-                  const m = result?.marked[i];
-                  const cls = m ? (j === m.right ? 'correct' : j === picks[i] ? 'wrong' : '') : picks[i] === j ? 'picked' : '';
-                  return (
-                    <button key={j} className={`option ${cls}`} disabled={!!result} onClick={() => setPicks((ps) => ps.map((x, k) => (k === i ? j : x)))}>
-                      {m && j === m.right && <CheckCircle2 size={16} />}
-                      {m && j === picks[i] && j !== m.right && <XCircle size={16} />} {o}
-                    </button>
-                  );
-                })}
-              </div>
-              {result && p.explain && <p className="small muted" style={{ margin: '6px 0 0' }}>{p.explain}</p>}
-            </div>
-          ))}
-          {result ? (
-            <p style={{ margin: 0 }}>
-              <strong>
-                {result.score} / {result.total}
-              </strong>
-              {result.points > 0 && <span className="small"> · +{result.points} Memory points</span>}
-            </p>
-          ) : (
-            <button className="btn primary" onClick={check} disabled={picks.some((x) => x < 0)}>
-              Check my answers
-            </button>
-          )}
-        </div>
-      )}
-      <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+      <div className="row" style={{ gap: 8 }}>
+        {saved ? (
+          <Link to={`/pack/${saved}/cards`} className="btn primary">
+            <Layers size={16} /> Review the flashcards
+          </Link>
+        ) : (
+          <button className="btn primary" onClick={save} disabled={saving}>
+            <Layers size={16} /> {saving ? 'Saving…' : 'Save as flashcards'}
+          </button>
+        )}
+        {data.next && (
+          <button className="btn" onClick={onNext}>
+            Next: {data.next.title} <ChevronRight size={16} />
+          </button>
+        )}
+        <button className="btn ghost" onClick={onReplay}>
+          <RotateCcw size={16} /> Watch again
+        </button>
         <Link to="/home" className="btn ghost">
           Learn something else
         </Link>
-        {data.packId && (
-          <Link to={`/pack/${data.packId}`} className="btn ghost">
-            Back to {data.packTitle || 'the pack'}
-          </Link>
-        )}
       </div>
     </div>
   );

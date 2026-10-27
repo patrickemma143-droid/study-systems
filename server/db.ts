@@ -530,6 +530,14 @@ migrations['011_tutor'] = {
   async down() {},
 };
 
+migrations['012_tutor_prefs'] = {
+  async up(k) {
+    // the student's chosen tutor, voice, accent and speed
+    if (!(await k.schema.hasColumn('users', 'tutor_prefs'))) await k.schema.alterTable('users', (t) => t.text('tutor_prefs'));
+  },
+  async down() {},
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

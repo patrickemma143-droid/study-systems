@@ -9,6 +9,9 @@ import { SessionRow, type PlanSession } from './Plan';
 import { ExamReview, pendingReviews, readyColor } from '../components/Readiness';
 import { useAiStatus } from '../lib/ai';
 import { TutorFace } from '../components/TutorFace';
+import { TutorPicker } from '../components/TutorPicker';
+import { useTutorPrefs } from '../lib/tutor/prefs';
+import { DEFAULT_PREFS, tutorById } from '../../shared/tutors';
 
 interface TutorSummary {
   id: number;
@@ -36,18 +39,24 @@ export default function Dashboard() {
   const [topic, setTopic] = useState('');
   const [pick, setPick] = useState<number | ''>('');
   const [lessons, setLessons] = useState<TutorSummary[]>([]);
+  const tp = useTutorPrefs();
+  const [picker, setPicker] = useState(false);
+  const persona = tutorById(tp.prefs?.tutor);
 
   useEffect(() => {
-    api<{ packs: PackSummary[] }>('/packs').then((r) => setPacks(r.packs));
-    api<Stats>(`/study/stats?day=${today()}`).then(setStats);
+    api<{ packs: PackSummary[] }>('/packs').then((r) => setPacks(r.packs ?? []))
+      .catch(() => setPacks((p) => p ?? []));
+    api<Stats>(`/study/stats?day=${today()}`)
+      .then(setStats)
+      .catch(() => {});
     api<{ sessions: PlanSession[] }>(`/plan?from=${today()}`)
-      .then((r) => setTodayPlan(r.sessions.filter((s) => s.day === today())))
+      .then((r) => setTodayPlan((r.sessions ?? []).filter((s) => s.day === today())))
       .catch(() => setTodayPlan([]));
     pendingReviews()
       .then(setReviews)
       .catch(() => {});
     api<{ lessons: TutorSummary[] }>('/tutor/lessons')
-      .then((r) => setLessons(r.lessons))
+      .then((r) => setLessons(r.lessons ?? []))
       .catch(() => {});
   }, []);
 
@@ -87,7 +96,10 @@ export default function Dashboard() {
     <>
       <section className="learn-hero">
         <div className="learn-hero-head">
-          <TutorFace size={54} speaking={false} />
+          <button className="learn-face" onClick={() => setPicker(true)} title="Choose your tutor and voice" aria-label={`Your tutor is ${persona.name}. Choose another tutor or voice`}>
+            <TutorFace size={58} look={persona.look} />
+            <span>{persona.name}</span>
+          </button>
           <div>
             <p className="learn-hi">
               {greeting()}, {first}
@@ -219,6 +231,17 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+      {picker && (
+        <TutorPicker
+          prefs={tp.prefs || DEFAULT_PREFS}
+          natural={tp.natural}
+          onClose={() => setPicker(false)}
+          onSave={async (p) => {
+            await tp.save(p);
+            toast(`${tutorById(p.tutor).name} will teach you from now on.`);
+          }}
+        />
+      )}
 
       {(lessons.length > 0 || stats.dueCards > 0) && (
         <div className="continue-row">

@@ -13,6 +13,7 @@ import { askRequest, lessonRequest, problemRequest } from '../ai/tutor';
 import { boardText, cleanLesson, cleanSteps, type TutorLesson, type TutorMode } from '../../shared/tutor';
 import { blocksFromPlainText, buildStudyPack, type CardSeed, type StudyPack } from '../../shared/engine';
 import { fetchTopic } from '../services/wikipedia';
+import { cleanPrefs, GEMINI_VOICES } from '../../shared/tutors';
 import { refreshPlan, savePack } from './packs';
 
 export const tutorRouter = Router();
@@ -168,7 +169,17 @@ tutorRouter.patch('/lessons/:id', async (req, res) => {
 tutorRouter.post('/lessons/:id/ask', async (req, res) => {
   requireAi();
   const uid = userId(res);
-  const b = z.object({ step: z.number().int().min(0).max(100), question: z.string().trim().min(2, 'Ask your question first.').max(800) }).parse(req.body);
+  const b = z
+    .object({
+      step: z.number().int().min(0).max(100),
+      question: z.string().trim().max(800).optional(),
+      // a spoken question, recorded on the phone (WAV), when the browser can't turn speech into text
+      audio: z.string().max(3_000_000).regex(/^data:audio\/(wav|x-wav|mpeg|mp4|ogg|aac|flac);base64,[A-Za-z0-9+/=]+$/).optional(),
+    })
+    .refine((x) => (x.question && x.question.length >= 2) || x.audio, { message: 'Ask your question first.' })
+    .parse(req.body);
+  if (b.audio && ai.provider === 'claude') throw new HttpError(400, 'Type your question — spoken questions need the Gemini AI.');
+  const audio = b.audio ? { mime: b.audio.slice(5, b.audio.indexOf(';')).replace('x-wav', 'wav'), data: b.audio.slice(b.audio.indexOf(',') + 1) } : undefined;
   const { lesson } = await lessonRow(uid, Number(req.params.id));
   const upto = lesson.steps.slice(0, b.step + 1);
   const sofar = upto.map((s) => s.say).join('\n');
@@ -177,10 +188,12 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
   const lastClear = items.map((x) => x.t).lastIndexOf('clear');
   const board = items.slice(lastClear + 1).map(boardText).filter(Boolean).join('\n');
   try {
-    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${b.question.toLowerCase()}`, askRequest(lesson.title, sofar, board, b.question), (raw) => {
+    const q = b.question || '';
+    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${q.toLowerCase()}\n${audio ? hash(audio.data) : ''}`, askRequest(lesson.title, sofar, board, q, audio), (raw) => {
       const steps = cleanSteps(raw?.steps, 5);
       if (!steps.length) throw new AiError('The tutor could not answer that one. Try asking another way.');
-      return { steps };
+      const heard = typeof raw?.heard === 'string' ? raw.heard.trim().slice(0, 300) : '';
+      return { steps, heard };
     });
     res.json({ ...data, usage: await limitsFor(uid) });
   } catch (err) {
@@ -234,14 +247,22 @@ tutorRouter.post('/lessons/:id/save', async (req, res) => {
 tutorRouter.post('/voice', async (req, res) => {
   const uid = userId(res);
   if (!voice.enabled) throw new HttpError(503, 'The natural voice is not switched on.');
-  const b = z.object({ text: z.string().trim().min(1).max(900) }).parse(req.body);
-  const key = hash(`${voice.model}\n${voice.voiceName}\n${b.text}`);
+  const b = z
+    .object({
+      text: z.string().trim().min(1).max(900),
+      voice: z.enum(GEMINI_VOICES as [string, ...string[]]).optional(),
+      accent: z.enum(['east-african', 'neutral']).optional(),
+    })
+    .parse(req.body);
+  const voiceName = b.voice || voice.voiceName;
+  const accent = b.accent || 'east-african';
+  const key = hash(`${voice.model}\n${voiceName}\n${accent}\n${b.text}`);
   let row = await db('tts_audio').where({ cache_key: key }).first();
   if (!row) {
     await assertAllowed(uid, 'voice');
     let speech;
     try {
-      speech = await speak(b.text);
+      speech = await speak(b.text, voiceName, accent);
     } catch (err) {
       friendly(err);
     }
@@ -260,4 +281,22 @@ tutorRouter.post('/voice', async (req, res) => {
   res.setHeader('X-Duration-Ms', String(row.duration_ms || 0));
   res.setHeader('Cache-Control', 'private, max-age=604800');
   res.end(bytes);
+});
+
+/** The student's tutor, voice, accent and speed — kept with the account, on every device. */
+tutorRouter.get('/prefs', async (_req, res) => {
+  const u = await db('users').where({ id: userId(res) }).first('tutor_prefs');
+  let raw: unknown = null;
+  try {
+    raw = u?.tutor_prefs ? JSON.parse(u.tutor_prefs) : null;
+  } catch {
+    raw = null;
+  }
+  res.json({ prefs: cleanPrefs(raw), natural: voice.enabled });
+});
+
+tutorRouter.put('/prefs', async (req, res) => {
+  const prefs = cleanPrefs(req.body);
+  await db('users').where({ id: userId(res) }).update({ tutor_prefs: JSON.stringify(prefs) });
+  res.json({ prefs });
 });

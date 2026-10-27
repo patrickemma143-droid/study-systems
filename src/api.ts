@@ -26,7 +26,16 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     }
     throw new ApiError(0, 'You seem to be offline. Check your connection and try again.');
   }
-  const data = await res.json().catch(() => ({}));
+  const raw = await res.text().catch(() => null);
+  let data: any = {};
+  if (raw === null) throw new ApiError(0, 'The reply was cut off. Please try again.');
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      if (res.ok) throw new ApiError(res.status, 'The server sent an unexpected reply. Please try again.');
+    }
+  }
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('cs:unauthorized'));
     throw new ApiError(res.status, data.error || `Request failed (${res.status}).`);

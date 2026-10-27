@@ -149,6 +149,8 @@ export class Narrator {
   constructor(
     public mode: VoiceMode,
     private onFallback: (reason: string) => void,
+    /** the chosen tutor's natural voice and accent */
+    private voice?: { name: string; accent: string },
   ) {
     if (mode === 'device' && !('speechSynthesis' in window)) this.mode = 'silent';
   }
@@ -158,7 +160,7 @@ export class Narrator {
     if (this.mode !== 'natural' || this.failed || this.cache.has(text)) return;
     this.cache.set(
       text,
-      fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
+      fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }) })
         .then(async (r) => {
           if (!r.ok) {
             const msg = (await r.json().catch(() => null))?.error || 'The natural voice is not available right now.';

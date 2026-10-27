@@ -150,10 +150,14 @@ Students can make an opt-in **public profile** (`/u/<name>`) with their universi
 
 ## Whiteboard tutor (AI)
 
-The AI tutor teaches on a whiteboard while it talks:
-- It writes handwriting, maths (KaTeX), flow charts, cycles, tables and graphs.
+The AI tutor teaches on a full-screen whiteboard while it talks, like a teacher at a board:
+- **A canvas, not slides.** Each part of the lesson gets its own column under a highlighted heading; the camera glides along as the tutor writes and zooms out to show the whole board at the end. Students can drag, pinch or scroll around it, and tap **Follow** to catch up.
+- It writes handwriting, maths (KaTeX), flow charts, cycles, tables and graphs, and **draws**: sketched diagrams (forces, circuits, cells, shapes with arrows and labels), pie charts and bar charts, drawn stroke by stroke with a pencil.
 - It circles, underlines and draws arrows to earlier items.
-- The student can stop it at any time with **"I have a question"**: typed, spoken (dictation), or quick chips such as "Explain that again, more simply" or "Give me another example". The answer appears on its own board, then the lesson carries on.
+- **It asks while it teaches.** On 2–3 steps the tutor stops and asks a quick multiple-choice question on the board. The student taps an answer or **says it** into the microphone; the tutor marks it (✓/✗) and explains before going on.
+- The student can stop it at any time with the big **mic button** (speech recognition where the browser has it, otherwise a short recording sent to Gemini), the keyboard button, or quick chips such as "Explain that again, more simply". The answer is written under "You asked: …", then the lesson carries on.
+- After the lesson, a **"Check yourself"** practice runs on the board, then the summary and score.
+- Keyboard: space (pause/play), arrows (back/next step), Q (ask).
 
 **Ways in:**
 - **Home**, under "What do you want to learn today?":
@@ -170,10 +174,15 @@ The AI tutor teaches on a whiteboard while it talks:
 - a summary and multiple-choice practice, marked on the server (Memory points, first try per lesson per day)
 - **Save as flashcards:** added to the pack the lesson came from, or a new study pack for topic and homework lessons. The cards then join spaced review.
 
+**Choose your tutor (voice):**
+- Tap the tutor's face on home, or the settings button in a lesson, to open **Choose your tutor**: 8 characters (Amara, Daniel, Grace, Joseph, Zara, Samuel, Ruth, Peter), each with their own face and natural Gemini voice, with a ▶ preview.
+- **Accent:** East African English or neutral (sent to the voice model as a direction).
+- **Sound:** natural AI voice, the phone's own voice (offline, no data) or captions only. **Speed:** 0.85×–1.5×. **Captions** on or off.
+- The choice is saved with the account (`users.tutor_prefs`, migration `012_tutor_prefs`; `GET`/`PUT /api/tutor/prefs`).
+
 **Voice:**
-- **Natural voice:** Gemini text-to-speech (`gemini-3.1-flash-tts-preview`, voice `Sulafat`), converted on the server to a small MP3 (about 5 KB per second of speech). Each sentence is spoken once and shared by everyone through the `tts_audio` table.
-- If the natural voice is unavailable, or the day's limit is reached, the tutor switches to the phone's own voice. "No sound" mode shows captions only.
-- Students can change speed (1×–1.5×) and turn captions on or off.
+- **Natural voice:** Gemini text-to-speech (`gemini-3.1-flash-tts-preview`), converted on the server to a small MP3 (about 5 KB per second of speech). `POST /api/tutor/voice` takes `{ text, voice?, accent? }`. Each sentence is spoken once per voice and accent and shared by everyone through the `tts_audio` table.
+- If the natural voice is unavailable, or the day's limit is reached, the tutor switches to the phone's own voice.
 
 **Saving and sharing:**
 - Lessons are saved per student (`tutor_lessons`, with the place reached), so home shows "continue" cards.
@@ -181,7 +190,7 @@ The AI tutor teaches on a whiteboard while it talks:
 
 **Allowances** (per day, Free / Pro): `teach` 5 / 80 whiteboard lessons, `homework` 3 / 40 problems, `voice` 60 / 1200 newly spoken steps. Questions during a lesson use `tutor`.
 
-**Code:** `server/routes/tutor.ts`, `server/ai/tutor.ts` (prompts), `shared/tutor.ts` (the board format and its checks), `src/pages/Tutor.tsx`, `src/components/Board.tsx`, `src/lib/tutor/narrator.ts` (voice and fallbacks), `src/lib/tutor/graph.ts` (a safe maths parser for graphs, no eval) and `src/pages/Homework.tsx`.
+**Code:** `server/routes/tutor.ts`, `server/ai/tutor.ts` (prompts), `shared/tutor.ts` (the board format and its checks), `src/pages/Tutor.tsx`, `src/components/Board.tsx`, `src/lib/tutor/narrator.ts` (voice and fallbacks), `src/lib/tutor/listen.ts` (mic), `src/lib/tutor/prefs.ts`, `src/components/TutorPicker.tsx`, `src/components/TutorFace.tsx`, `shared/tutors.ts` (the tutors and voices), `src/lib/tutor/graph.ts` (a safe maths parser for graphs, no eval) and `src/pages/Homework.tsx`.
 
 ## Look and feel
 
@@ -251,7 +260,7 @@ Everything above works with no AI. Add one API key and these appear for logged-i
 | `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2,teach=5,homework=3,voice=60` | Daily allowance on Free (build = smart lessons, paper = AI exam papers, teach = whiteboard lessons, homework = snapped problems, voice = newly spoken tutor steps) |
 | `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20,teach=80,homework=40,voice=1200` | Daily allowance on Pro |
 | `TTS_MODEL` | `gemini-3.1-flash-tts-preview` | The tutor's natural voice (needs a Gemini key, even if the main AI is Claude; `TTS_API_KEY` can hold a separate one) |
-| `TTS_VOICE` | `Sulafat` | Any Gemini prebuilt voice, e.g. `Kore`, `Puck`, `Achird`, `Vindemiatrix` |
+| `TTS_VOICE` | `Sulafat` | Default Gemini prebuilt voice (students can pick their own tutor's voice) |
 | `TTS_ENABLED` | `true` | `false` makes the tutor use the phone's own voice |
 | `TTS_PRICE_OUTPUT` | `10` | USD per million audio tokens, for the admin cost estimate (check Google's current price) |
 | `ADMIN_EMAILS` | | Comma-separated emails that can open `/admin` (admins always get Pro) |

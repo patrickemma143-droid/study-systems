@@ -180,7 +180,9 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { say: `Welcome! Today we are learning ${lessonTitle}. Let us start with the big idea.`, board: [{ t: 'heading', text: lessonTitle }, { t: 'write', id: 'w1', text: 'The big idea, in one line', tone: 'key' }] },
         { say: 'Here is the key equation. Notice the two parts on each side.', board: [{ t: 'math', id: 'm1', tex: 'x^2 + 5x + 6 = 0' }, { t: 'write', id: 'w2', text: 'Factorise: $(x+2)(x+3) = 0$' }, { t: 'circle', target: 'm1' }] },
         { say: 'Now let us see the process as a flow, and how the steps connect.', board: [{ t: 'flow', items: ['Read the question', 'Choose a method', 'Solve', 'Check'] }, { t: 'arrow', from: 'w1', to: 'w2', label: 'leads to' }] },
-        { say: 'Some things repeat as a cycle, and a table helps us compare.', board: [{ t: 'clear' }, { t: 'cycle', items: ['Plan', 'Do', 'Check', 'Improve'] }, { t: 'table', head: ['Method', 'When to use'], rows: [['Factorise', 'Small whole numbers'], ['Formula', 'Always works']] }] },
+        { say: 'Quick check before we go on.', board: [{ t: 'write', text: 'Your turn!', tone: 'key' }], check: { q: 'What do we do first?', options: ['Factorise', 'Guess', 'Draw a cat'], answer: 0, explain: 'We factorise to split it into two brackets.' } },
+        { say: 'Some things repeat as a cycle, and a table helps us compare.', board: [{ t: 'heading', text: 'Methods' }, { t: 'cycle', items: ['Plan', 'Do', 'Check', 'Improve'] }, { t: 'table', head: ['Method', 'When to use'], rows: [['Factorise', 'Small whole numbers'], ['Formula', 'Always works']] }] },
+        { say: 'Here is a force diagram and some data.', board: [{ t: 'heading', text: 'Diagrams' }, { t: 'sketch', id: 's1', h: 50, caption: 'Forces on a block', shapes: [{ k: 'ground', p: [5, 40, 95] }, { k: 'rect', p: [38, 22, 24, 18], c: 'blue', fill: true }, { k: 'arrow', p: [62, 31, 90, 31], c: 'red', label: 'F' }, { k: 'arrow', p: [38, 31, 12, 31], c: 'orange', label: 'friction' }, { k: 'text', p: [50, 12], text: 'block', c: 'ink' }] }, { t: 'pie', items: [{ label: 'TV', value: 50 }, { label: 'Online', value: 35 }, { label: 'Paper', value: 15 }], caption: 'Survey of 100 people' }, { t: 'bars', items: [{ label: 'Mon', value: 3 }, { label: 'Tue', value: 5 }, { label: 'Wed', value: 2 }], unit: 'h' }] },
         { say: 'A graph shows where the curve crosses zero. Those are our answers.', board: [{ t: 'graph', fn: 'x^2+5x+6', xmin: -5, xmax: 1, label: 'y = x² + 5x + 6' }, { t: 'bullets', items: ['Crosses at x = −2', 'and at x = −3'] }] },
         { say: 'So the answer is x equals minus two or minus three. Well done!', board: [{ t: 'box', label: 'Answer', text: '$x = -2$ or $x = -3$' }, { t: 'underline', target: 'w2' }] },
       ],
@@ -295,7 +297,7 @@ export interface Speech {
 }
 
 /** Speak one tutor step. The style lines steer the voice; only the transcript is read out. */
-export async function speak(text: string): Promise<Speech> {
+export async function speak(text: string, voiceName = voice.voiceName, accent: 'east-african' | 'neutral' = 'east-african'): Promise<Speech> {
   if (!voice.enabled) throw new AiError('The natural voice is not switched on.', 503);
   if (ai.provider === 'mock') {
     // a quiet tone as long as the words would take to say, so the whole path can be tested
@@ -305,16 +307,17 @@ export async function speak(text: string): Promise<Speech> {
     for (let i = 0; i < n; i++) pcm[i] = Math.round(Math.sin((i / rate) * 2 * Math.PI * 220) * 600);
     return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((n / rate) * 1000), tokensOut: Math.ceil(text.length / 4) };
   }
+  const accentNote = accent === 'east-african' ? ' A natural East African (Ugandan) English accent.' : ' Neutral international English.';
   const prompt = `[Audio Profile: A warm, patient university tutor who loves helping students understand.]
 [Scene: A one-to-one lesson at a whiteboard.]
-[Director's Notes: Clear, friendly and encouraging. Unhurried pace, natural pauses, gentle emphasis on key words.]
+[Director's Notes: Clear, friendly and encouraging. Unhurried pace, natural pauses, gentle emphasis on key words.${accentNote}]
 ${text}`;
   const data = await postJson(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`,
     { 'x-goog-api-key': voice.key },
     {
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice.voiceName } } } },
+      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } },
     },
   );
   const part = (data?.candidates?.[0]?.content?.parts || []).find((p: any) => p.inlineData?.data);
