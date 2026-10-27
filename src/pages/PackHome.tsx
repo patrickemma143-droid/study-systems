@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpenCheck, CalendarDays, Check, Download, Target, ExternalLink, FileUp, Pencil, PartyPopper, Play, Presentation, Trash2, X } from 'lucide-react';
+import { BookOpenCheck, CalendarDays, GraduationCap, Check, Download, Target, ExternalLink, FileUp, Pencil, PartyPopper, Play, Presentation, Trash2, X } from 'lucide-react';
 import { useAiStatus } from '../lib/ai';
 import { TutorFace } from '../components/TutorFace';
+import { useTutorPrefs } from '../lib/tutor/prefs';
+import { OriginCard } from '../components/OriginCard';
+import { emptyOrigin, originLabel, type PaperOrigin } from '@shared/origin';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { AiPackExplainer, SmartPackBuilder } from '../components/AiPanels';
@@ -24,6 +27,7 @@ const PREFS = [
 
 export default function PackHome() {
   const id = Number(useParams().id);
+  const tutorPrefs = useTutorPrefs();
   const [params] = useSearchParams();
   const nav = useNavigate();
   const toast = useToast();
@@ -31,6 +35,7 @@ export default function PackHome() {
   const aiTutor = useAiStatus();
   const { data, error, reload } = usePack(id);
   const [editTitle, setEditTitle] = useState<string | null>(null);
+  const [editOrigin, setEditOrigin] = useState<PaperOrigin | null>(null);
   const [editExam, setEditExam] = useState<string | null>(null);
   const [match, setMatch] = useState<'checking' | 'none' | 'found'>('checking');
   const [offline, setOffline] = useState<'no' | 'saving' | 'saved'>(() => (isDownloaded(id) ? 'saved' : 'no'));
@@ -50,13 +55,14 @@ export default function PackHome() {
   const bestQuiz = quiz.length ? Math.max(...quiz.map((q) => Math.round((q.score / q.total) * 100))) : null;
   const pathFor = (p: string) => (p === 'learn/0' ? `learn/${nextLesson}` : p);
 
-  async function saveMeta(body: { title?: string; examDate?: string | null }) {
+  async function saveMeta(body: { title?: string; examDate?: string | null; origin?: PaperOrigin | null }) {
     try {
       await api(`/packs/${id}`, { method: 'PATCH', body });
       invalidatePack(id);
       await reload();
       setEditTitle(null);
       setEditExam(null);
+      setEditOrigin(null);
       toast('Saved');
     } catch (e: any) {
       toast(e.message);
@@ -140,6 +146,9 @@ export default function PackHome() {
             <CalendarDays size={14} /> {examLabel(pack.examDate) || 'Add exam date'}
           </button>
         )}
+        <button className="chip" onClick={() => setEditOrigin(editOrigin ? null : pack.origin || emptyOrigin())} title="Where this material is from">
+          <GraduationCap size={14} /> {pack.origin && originLabel(pack.origin, { short: true }) ? originLabel(pack.origin, { short: true }) : 'Add university & course'}
+        </button>
         <button
           className="chip"
           disabled={offline === 'saving'}
@@ -158,6 +167,19 @@ export default function PackHome() {
           <Download size={14} /> {offline === 'saved' ? 'Saved for offline ✓' : offline === 'saving' ? 'Saving…' : 'Save for offline'}
         </button>
       </div>
+      {editOrigin && (
+        <div className="stack" style={{ marginTop: -10, marginBottom: 20 }}>
+          <OriginCard origin={editOrigin} onChange={setEditOrigin} />
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn small primary" onClick={() => saveMeta({ origin: editOrigin })}>
+              Save
+            </button>
+            <button className="btn small ghost" onClick={() => setEditOrigin(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid cols-3">
         <div className="sheet tight">
@@ -209,7 +231,7 @@ export default function PackHome() {
 
       {aiTutor?.enabled && (
         <section className="tutor-banner">
-          <TutorFace size={58} />
+          <TutorFace size={58} tutor={tutorPrefs.prefs?.tutor} />
           <div className="tutor-banner-text">
             <strong>Let the tutor teach it</strong>
             <span className="small muted">Every lesson taught step by step on a whiteboard, out loud. Stop and ask questions any time.</span>

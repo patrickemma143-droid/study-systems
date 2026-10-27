@@ -22,10 +22,11 @@ export interface WeakSpot {
 }
 
 async function prediction(uid: number, packId: number, pack: StudyPack): Promise<Prediction> {
-  const papers = await db('past_papers').where({ user_id: uid, pack_id: packId }).select('name', 'text');
+  const papers = await db('past_papers').where({ user_id: uid, pack_id: packId }).select('name', 'text', 'origin');
   return predictTopics(
     pack,
-    (papers as any[]).map((p) => ({ text: String(p.text), year: guessYear(`${p.name} ${String(p.text).slice(0, 3000)}`) })),
+    // the year the student confirmed (or the header says), else the old guess from the text
+    (papers as any[]).map((p) => ({ text: String(p.text), year: parseJSON<{ year?: number | null } | null>(p.origin, null)?.year || guessYear(`${p.name} ${String(p.text).slice(0, 3000)}`) })),
   );
 }
 

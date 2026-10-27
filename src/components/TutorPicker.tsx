@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Play, Square, X } from 'lucide-react';
 import { ACCENTS, TUTORS, type TutorPrefs } from '../../shared/tutors';
 import { TutorFace } from './TutorFace';
+import { TutorAvatar } from './TutorAvatar';
+import { meterAudio, unlockMeter } from '../lib/tutor/meter';
+import { webglOk } from '../lib/tutor/webgl';
 import { useToast } from './ui';
 
 const SOUNDS: { id: TutorPrefs['sound']; label: string; hint: string }[] = [
@@ -30,6 +33,8 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
 
   async function preview(id: string) {
     const t = TUTORS.find((x) => x.id === id)!;
+    unlockMeter();
+    setP((cur) => ({ ...cur, tutor: id }));
     audio.current?.pause();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     if (playing === id) {
@@ -54,6 +59,7 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
       const url = URL.createObjectURL(await r.blob());
       const a = new Audio(url);
       a.playbackRate = p.rate;
+      meterAudio(a);
       a.onended = () => {
         setPlaying(null);
         URL.revokeObjectURL(url);
@@ -80,11 +86,24 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
             <X size={18} />
           </button>
         </div>
+        {p.avatar && webglOk() && (
+          <div className="picker-hero">
+            <div className="picker-live">
+              <TutorAvatar tutor={p.tutor} speaking={playing === p.tutor} framing="bust" />
+            </div>
+            <div>
+              <strong>{TUTORS.find((t) => t.id === p.tutor)?.name}</strong>
+              <p className="small muted" style={{ margin: '4px 0 0' }}>
+                {TUTORS.find((t) => t.id === p.tutor)?.sounds}. Teaches on the board beside you, looks at you while you answer, and reacts when you get it right.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="picker-grid">
           {TUTORS.map((t) => (
             <div key={t.id} className={`picker-card ${p.tutor === t.id ? 'on' : ''}`}>
               <button className="picker-pick" onClick={() => setP({ ...p, tutor: t.id })} aria-pressed={p.tutor === t.id}>
-                <TutorFace look={t.look} size={58} speaking={playing === t.id} />
+                <TutorFace tutor={t.id} size={58} speaking={playing === t.id} />
                 <strong>{t.name}</strong>
                 <span className="small muted">{t.sounds}</span>
                 {p.tutor === t.id && (
@@ -132,6 +151,9 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
         </div>
         <label className="row small" style={{ gap: 8, cursor: 'pointer' }}>
           <input type="checkbox" checked={p.captions} onChange={(e) => setP({ ...p, captions: e.target.checked })} /> Show captions while the tutor talks
+        </label>
+        <label className="row small" style={{ gap: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={p.avatar} onChange={(e) => setP({ ...p, avatar: e.target.checked })} /> Show the tutor on video (3D) — turn off to save data and battery
         </label>
         <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn ghost" onClick={onClose}>

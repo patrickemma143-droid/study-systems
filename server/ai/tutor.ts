@@ -73,11 +73,12 @@ export function problemRequest(text: string, image?: { mime: string; data: strin
 }
 
 /** The student stopped the lesson to ask something: answer on the board, then hand back. */
-export function askRequest(lessonTitle: string, sofar: string, board: string, question: string, audio?: { mime: string; data: string }): AiRequest {
+export function askRequest(lessonTitle: string, sofar: string, board: string, question: string, audio?: { mime: string; data: string }, image?: { mime: string; data: string }): AiRequest {
+  const drawn = image ? ' They also wrote on the board themselves: the picture shows their handwriting or working (in their pen colours, on white). Read it carefully, say what is right, correct any mistake gently and show the right working.' : '';
   return {
-    system: `${TEACHER}\n\nTASK:TEACH_ASK\nYou are in the middle of teaching "${lessonTitle}". The student just interrupted with a question${audio ? ' (spoken, in the audio clip — they may have an East African accent; if you cannot make it out, ask them kindly to repeat or type it)' : ''}. Answer it on the board in 1-4 short steps (start with {"t":"clear"} so the answer gets its own fresh space), check they understood, then say you'll carry on with the lesson.\nReply with JSON only: {"heard": "the student's question in words", "steps": [ ... ]} using the same step and board item format:\n${BOARD_FORMAT.split('\n').slice(1).join('\n')}\n\nWHAT YOU HAVE SAID SO FAR:\n<<<\n${sofar.slice(-5000)}\n>>>\nON THE BOARD NOW:\n<<<\n${board.slice(0, 2000)}\n>>>`,
-    messages: [{ role: 'user', content: question.slice(0, 800) || 'My question is in the audio.' }],
-    images: audio ? [audio] : undefined,
+    system: `${TEACHER}\n\nTASK:TEACH_ASK\nYou are in the middle of teaching "${lessonTitle}". The student just interrupted with a question${audio ? ' (spoken, in the audio clip — they may have an East African accent; if you cannot make it out, ask them kindly to repeat or type it)' : ''}.${drawn} Answer it on the board in 1-4 short steps (start with {"t":"clear"} so the answer gets its own fresh space), check they understood, then say you'll carry on with the lesson.\nReply with JSON only: {"heard": "the student's question in words", "steps": [ ... ]} using the same step and board item format:\n${BOARD_FORMAT.split('\n').slice(1).join('\n')}\n\nWHAT YOU HAVE SAID SO FAR:\n<<<\n${sofar.slice(-5000)}\n>>>\nON THE BOARD NOW:\n<<<\n${board.slice(0, 2000)}\n>>>`,
+    messages: [{ role: 'user', content: question.slice(0, 800) || (image ? 'Please check what I wrote on the board.' : 'My question is in the audio.') }],
+    images: audio || image ? [audio, image].filter((x): x is { mime: string; data: string } => !!x) : undefined,
     json: true,
     maxTokens: 2500,
     temperature: 0.4,

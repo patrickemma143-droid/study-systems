@@ -530,6 +530,7 @@ export function AiPlanCard() {
     { kind: 'teach', label: 'Whiteboard lessons' },
     { kind: 'homework', label: 'Homework problems' },
     { kind: 'voice', label: 'Natural voice (spoken steps)' },
+    { kind: 'detect', label: 'Papers read for their details' },
   ];
   return (
     <div className="sheet stack">

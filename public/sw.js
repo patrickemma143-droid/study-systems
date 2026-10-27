@@ -56,7 +56,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirst(req, SHELL, '/__app'));
     return;
   }
-  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/anatomy/') || url.pathname.startsWith('/draco/') || url.pathname.startsWith('/fonts/') || /^\/(icon[\w-]*\.(png|svg)|theme\.js|manifest\.webmanifest)$/.test(url.pathname)) {
+  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/anatomy/') || url.pathname.startsWith('/tutors/') || url.pathname.startsWith('/draco/') || url.pathname.startsWith('/fonts/') || /^\/(icon[\w-]*\.(png|svg)|theme\.js|manifest\.webmanifest)$/.test(url.pathname)) {
     // build files have unique names per version, so a saved copy is always correct
     event.respondWith(cacheFirst(req));
     return;

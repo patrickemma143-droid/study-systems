@@ -52,6 +52,7 @@ const Admin = lazyPage(() => import('./pages/Admin'));
 const Plan = lazyPage(() => import('./pages/Plan'));
 const Ranks = lazyPage(() => import('./pages/Ranks'));
 const Paper = lazyPage(() => import('./pages/Paper'));
+const TutorPortrait = lazyPage(() => import('./pages/TutorPortrait'));
 
 /** Only same-site paths, never another website. */
 function safeNext(next: string | null): string {
@@ -81,6 +82,7 @@ function App() {
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/" element={<PublicOnly><Landing /></PublicOnly>} />
+        <Route path="/tutor-portrait/:id" element={<TutorPortrait />} />
         <Route path="/login" element={<PublicOnly><AuthPage mode="login" /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><AuthPage mode="register" /></PublicOnly>} />
         <Route element={<RequireAuth><Layout /></RequireAuth>}>

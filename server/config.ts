@@ -80,7 +80,7 @@ function webPort(): number {
 
 // ─── AI (optional) ───────────────────────────────────────────
 // No key → the app stays fully API-free. Set GEMINI_API_KEY or ANTHROPIC_API_KEY (or AI_PROVIDER + AI_API_KEY).
-export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice' | 'detect';
 type Limits = Record<AiKind, number>;
 
 function parseLimits(text: string | undefined, fallback: Limits): Limits {
@@ -108,9 +108,10 @@ export const ai = {
   priceInput: env.AI_PRICE_INPUT ? Number(env.AI_PRICE_INPUT) : null,
   priceOutput: env.AI_PRICE_OUTPUT ? Number(env.AI_PRICE_OUTPUT) : null,
   limits: {
-    // teach = whiteboard lessons, homework = snapped problems, voice = spoken steps (natural voice)
-    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 60 }),
-    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 1200 }),
+    // teach = whiteboard lessons, homework = snapped problems, voice = spoken steps (natural voice),
+    // detect = reading where and when an uploaded paper is from
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 60, detect: 30 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 1200, detect: 300 }),
   },
 };
 

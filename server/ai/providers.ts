@@ -165,6 +165,20 @@ async function mock(req: AiRequest): Promise<AiResult> {
         { q: 'Which of these is NOT part of the lesson?', options: ['Part one', 'Part two', 'Part three', 'Something unrelated'], answer: 3, explanation: 'The last option is not in the notes.' },
       ],
     });
+  } else if (req.system.includes('TASK:PAPER_ORIGIN')) {
+    // the test AI "reads" a messy scan: it knows the university even when OCR mangled it
+    const t = last.toLowerCase().replace(/\s+/g, ' ');
+    const squashed = t.replace(/\s/g, '');
+    text = JSON.stringify({
+      isPaper: /exam|marks|answer/.test(t),
+      university: /makerer/.test(t) ? 'Makerere University' : /kyambog/.test(t) ? 'Kyambogo University' : null,
+      courseCode: (last.match(/\b([A-Z]{2,4})\s?([1-9]\d{3})\b(?<!20\d\d)/) || []).slice(1, 3).join(' ') || null,
+      courseName: /statist/.test(t) ? 'Biostatistics' : null,
+      examType: /exam/.test(t) ? 'final' : null,
+      month: /may20/.test(squashed) ? 5 : null,
+      year: Number((last.match(/\b(20\d\d)\b/) || [])[1]) || null,
+      evidence: { university: 'read by the test AI' },
+    });
   } else if (req.system.includes('TASK:TEACH_ASK')) {
     text = JSON.stringify({
       steps: [

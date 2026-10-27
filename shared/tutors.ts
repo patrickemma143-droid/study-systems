@@ -19,6 +19,9 @@ export interface TutorPersona {
   look: TutorLook;
 }
 
+/** Bump when public/tutors/* are rebuilt, so phones fetch the new models and portraits. */
+export const TUTOR_ART_VERSION = 1;
+
 export const TUTORS: TutorPersona[] = [
   { id: 'amara', name: 'Amara', voice: 'Sulafat', sounds: 'Warm and encouraging', gender: 'f', look: { skin: '#8d5a3b', hair: '#1c1412', style: 'puff', glasses: true, shirt: '#7b5cff' } },
   { id: 'daniel', name: 'Daniel', voice: 'Achird', sounds: 'Friendly and relaxed', gender: 'm', look: { skin: '#6b4226', hair: '#141010', style: 'short', glasses: true, shirt: '#19b8e6' } },
@@ -43,9 +46,11 @@ export interface TutorPrefs {
   sound: 'natural' | 'device' | 'silent';
   rate: number;
   captions: boolean;
+  /** show the live 3D tutor (off saves battery and data) */
+  avatar: boolean;
 }
 
-export const DEFAULT_PREFS: TutorPrefs = { tutor: 'amara', accent: 'east-african', sound: 'natural', rate: 1, captions: true };
+export const DEFAULT_PREFS: TutorPrefs = { tutor: 'amara', accent: 'east-african', sound: 'natural', rate: 1, captions: true, avatar: true };
 
 export function tutorById(id: string | undefined): TutorPersona {
   return TUTORS.find((t) => t.id === id) || TUTORS[0];
@@ -66,6 +71,7 @@ export function cleanPrefs(raw: any): TutorPrefs {
     const r = Number(raw.rate);
     if ([0.85, 1, 1.25, 1.5].includes(r)) p.rate = r;
     if (typeof raw.captions === 'boolean') p.captions = raw.captions;
+    if (typeof raw.avatar === 'boolean') p.avatar = raw.avatar;
   }
   return p;
 }

@@ -97,7 +97,7 @@ export default function Dashboard() {
       <section className="learn-hero">
         <div className="learn-hero-head">
           <button className="learn-face" onClick={() => setPicker(true)} title="Choose your tutor and voice" aria-label={`Your tutor is ${persona.name}. Choose another tutor or voice`}>
-            <TutorFace size={58} look={persona.look} />
+            <TutorFace size={58} tutor={persona.id} />
             <span>{persona.name}</span>
           </button>
           <div>

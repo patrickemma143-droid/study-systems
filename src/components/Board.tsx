@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css';
 import { Pencil, Check as Tick, X as Cross } from 'lucide-react';
 import type { BoardItem, Ink, Shape } from '../../shared/tutor';
 import { plot } from '../lib/tutor/graph';
+import { inkPath, type InkStroke } from '../../shared/ink';
 
 /** A question written on the board (from a step's check or the end-of-lesson practice). */
 export interface QuizEl {
@@ -518,6 +519,8 @@ function offsetIn(el: HTMLElement, world: HTMLElement) {
   return { x, y, w: el.offsetWidth, h: el.offsetHeight };
 }
 
+export type InkTool = { tool: 'pen' | 'marker' | 'eraser'; color: string; w: number };
+
 export default function Board({
   items,
   focus,
@@ -525,6 +528,9 @@ export default function Board({
   overview = false,
   onUserMove,
   onAnswer,
+  ink = [],
+  tool = null,
+  onInk,
 }: {
   items: ShownItem[];
   /** key of the item being written now */
@@ -533,6 +539,11 @@ export default function Board({
   overview?: boolean;
   onUserMove?: () => void;
   onAnswer?: (qid: string, i: number) => void;
+  /** what the student has written on the board */
+  ink?: InkStroke[];
+  /** the student's pen, when they are writing (otherwise dragging moves the board) */
+  tool?: InkTool | null;
+  onInk?: (ink: InkStroke[]) => void;
 }) {
   const view = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
@@ -542,6 +553,11 @@ export default function Board({
   const [gliding, setGliding] = useState(true);
   const [pen, setPen] = useState<{ x: number; y: number; w: number; d: number; key: string } | null>(null);
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; pts: Map<number, { x: number; y: number }>; dist?: number; s0?: number } | null>(null);
+  // the stroke being written now (kept out of React state until it is finished)
+  const live = useRef<{ id: number; stroke: InkStroke; path: SVGPathElement | null } | null>(null);
+  const livePath = useRef<SVGPathElement>(null);
+  const inkRef = useRef(ink);
+  inkRef.current = ink;
 
   const sections = sectionsOf(items);
 
@@ -655,8 +671,62 @@ export default function Board({
       return { s, x: px - (px - c.x) * k, y: py - (py - c.y) * k };
     });
   }
+  /** board coordinates under the pointer */
+  function toWorld(e: { clientX: number; clientY: number }) {
+    const r = view.current!.getBoundingClientRect();
+    return { x: (e.clientX - r.left - cam.x) / cam.s, y: (e.clientY - r.top - cam.y) / cam.s };
+  }
+  function eraseAt(p: { x: number; y: number }) {
+    const rad = 14 / cam.s;
+    const near = (s: InkStroke) => {
+      const r = rad + s.w / 2;
+      if (s.pts.length === 2) return Math.hypot(s.pts[0] - p.x, s.pts[1] - p.y) < r;
+      for (let i = 0; i + 3 < s.pts.length; i += 2) {
+        // distance from the pointer to this piece of the line
+        const ax = s.pts[i], ay = s.pts[i + 1], bx = s.pts[i + 2], by = s.pts[i + 3];
+        const dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / (dx * dx + dy * dy || 1)));
+        if (Math.hypot(ax + t * dx - p.x, ay + t * dy - p.y) < r) return true;
+      }
+      return false;
+    };
+    const keep = inkRef.current.filter((s) => !near(s));
+    if (keep.length !== inkRef.current.length) onInk?.(keep);
+  }
+  const capture = (e: RPointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* not every pointer can be captured (e.g. one that already ended) */
+    }
+  };
   function onPointerDown(e: RPointerEvent<HTMLDivElement>) {
-    if ((e.target as HTMLElement).closest('button')) return;
+    // while writing, the pen writes over everything on the board (answers are tapped with the pen off)
+    if (!tool && (e.target as HTMLElement).closest('button')) return;
+    // writing: one pointer draws; a second finger turns it into moving the board
+    if (tool && !drag.current && !live.current && (e.pointerType !== 'touch' || e.isPrimary)) {
+      capture(e);
+      const p = toWorld(e);
+      setGliding(false);
+      onUserMove?.();
+      if (tool.tool === 'eraser') {
+        live.current = { id: e.pointerId, stroke: { id: 'eraser', tool: 'pen', color: '', w: 0, pts: [] }, path: null };
+        eraseAt(p);
+        return;
+      }
+      const stroke: InkStroke = { id: Math.random().toString(36).slice(2, 10), tool: tool.tool, color: tool.color, w: tool.w, pts: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] };
+      live.current = { id: e.pointerId, stroke, path: livePath.current };
+      livePath.current?.setAttribute('d', inkPath(stroke.pts));
+      livePath.current?.setAttribute('stroke', stroke.color);
+      livePath.current?.setAttribute('stroke-width', String(stroke.w));
+      livePath.current?.setAttribute('class', `ink-${stroke.tool}`);
+      return;
+    }
+    if (live.current && live.current.id !== e.pointerId) {
+      // a second finger: drop the stroke just started and pan/zoom instead
+      live.current = null;
+      livePath.current?.setAttribute('d', '');
+    }
     type Drag = NonNullable<typeof drag.current>;
     const d: Drag = drag.current || { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, pts: new Map() };
     d.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -666,9 +736,25 @@ export default function Board({
       d.s0 = cam.s;
     }
     drag.current = d;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    capture(e);
   }
   function onPointerMove(e: RPointerEvent<HTMLDivElement>) {
+    const L = live.current;
+    if (L && L.id === e.pointerId) {
+      const events = (e.nativeEvent as PointerEvent).getCoalescedEvents?.() || [e.nativeEvent];
+      for (const ev of events.length ? events : [e.nativeEvent]) {
+        const p = toWorld(ev);
+        if (L.stroke.id === 'eraser') {
+          eraseAt(p);
+          continue;
+        }
+        const n = L.stroke.pts.length;
+        if (Math.hypot(p.x - L.stroke.pts[n - 2], p.y - L.stroke.pts[n - 1]) * cam.s < 1.5) continue;
+        L.stroke.pts.push(Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10);
+      }
+      if (L.path) L.path.setAttribute('d', inkPath(L.stroke.pts));
+      return;
+    }
     const d = drag.current;
     if (!d || !d.pts.has(e.pointerId)) return;
     d.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -692,6 +778,14 @@ export default function Board({
     setCam((c) => ({ ...c, x: d.cx + dx, y: d.cy + dy }));
   }
   function onPointerUp(e: RPointerEvent<HTMLDivElement>) {
+    const L = live.current;
+    if (L && L.id === e.pointerId) {
+      live.current = null;
+      livePath.current?.setAttribute('d', '');
+      livePath.current?.removeAttribute('class');
+      if (L.stroke.id !== 'eraser' && e.type !== 'pointercancel') onInk?.([...inkRef.current, L.stroke]);
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     d.pts.delete(e.pointerId);
@@ -724,7 +818,7 @@ export default function Board({
   }, [onUserMove]);
 
   return (
-    <div className="board" ref={view} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    <div className={`board ${tool ? `drawing tool-${tool.tool}` : ''}`} ref={view} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       <div className={`board-world ${gliding ? 'glide' : ''}`} ref={world} style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})` }}>
         {sections.map((sec, si) => (
           <section key={sec[0]?.key || si} className="b-col" style={{ width: COL }}>
@@ -758,6 +852,12 @@ export default function Board({
               )}
             </g>
           ))}
+        </svg>
+        <svg className="board-ink" width={Math.max(size.w, 1)} height={Math.max(size.h, 1)} aria-hidden>
+          {ink.map((s) => (
+            <path key={s.id} d={inkPath(s.pts)} stroke={s.color} strokeWidth={s.w} className={`ink-${s.tool}`} />
+          ))}
+          <path ref={livePath} d="" />
         </svg>
         {pen && (
           <span key={pen.key} className="b-pen" style={{ left: pen.x, top: pen.y, ['--w' as any]: `${pen.w}px`, ['--d' as any]: `${pen.d}s` } as CSSProperties} aria-hidden>

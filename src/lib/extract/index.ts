@@ -22,7 +22,12 @@ export interface Extracted {
   /** A scanned PDF or a photo: the text has to be recognised (OCR) first */
   needsOcr?: boolean;
   pages?: number;
+  /** the file's own text, line by line (text files), e.g. so past-paper question numbers survive */
+  raw?: string;
 }
+
+/** The text of an extracted file as one string, keeping the original lines when we have them. */
+export const plainText = (r: Extracted) => r.raw ?? r.blocks.map((b) => b.text).join('\n');
 
 export async function extractFile(file: File, onProgress?: (msg: string) => void): Promise<Extracted> {
   const type = sourceTypeOf(file);
@@ -46,7 +51,8 @@ export async function extractFile(file: File, onProgress?: (msg: string) => void
     return { blocks: await extractPptx(file), type };
   }
   onProgress?.('Reading your notes…');
-  return { blocks: blocksFromPlainText(await file.text()), type };
+  const raw = await file.text();
+  return { blocks: blocksFromPlainText(raw), type, raw };
 }
 
 /**

@@ -1,3 +1,5 @@
+import { meterAudio, stopMeter } from './meter';
+
 // The tutor's voice. Natural AI voice from the server (small MP3s, shared and cached), the phone's
 // own voice when that isn't available, or silent with captions. One "track" per lesson step.
 
@@ -64,6 +66,7 @@ class AudioTrack implements Track {
   }
   play() {
     if (this.ended) return;
+    meterAudio(this.audio);
     this.audio.play().catch(() => {
       /* the browser blocked sound (no tap yet): carry on silently */
       window.setTimeout(() => this.finish(), this.duration * 1000);
@@ -74,6 +77,7 @@ class AudioTrack implements Track {
   }
   stop() {
     this.audio.pause();
+    stopMeter(this.audio);
     this.cbs = [];
   }
   onEnd(cb: () => void) {

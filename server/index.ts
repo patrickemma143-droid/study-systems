@@ -23,6 +23,7 @@ import { battlesRouter } from './routes/battles';
 import { seedLibrary } from './seed/library';
 import { anatomyRouter } from './routes/anatomy';
 import { tutorRouter } from './routes/tutor';
+import { originRouter } from './routes/origin';
 import { publicRouter } from './public';
 import { startReminders } from './notify';
 
@@ -42,7 +43,7 @@ app.use(
         'worker-src': ["'self'", 'blob:'],
         'media-src': ["'self'", 'blob:'], // the whiteboard tutor's voice
 
-        'connect-src': ["'self'"],
+        'connect-src': ["'self'", 'blob:'],
         'upgrade-insecure-requests': config.cookieSecure ? [] : null,
       },
     },
@@ -94,6 +95,7 @@ app.use('/api/classes', classesRouter);
 app.use('/api/battles', battlesRouter);
 app.use('/api/anatomy', anatomyRouter);
 app.use('/api/tutor', tutorRouter);
+app.use('/api/origin', originRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Public, search-engine-friendly pages (opt-in student profiles, top students, sitemap)
@@ -109,7 +111,7 @@ if (fs.existsSync(path.join(config.distDir, 'index.html'))) {
       setHeaders: (res, file) => {
         if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         // 3D models are fetched with ?v=<size>, so a week of caching is safe and saves students' data
-        else if (/[\\/](anatomy|draco)[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800');
+        else if (/[\\/](anatomy|draco|tutors)[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800');
       },
     }),
   );

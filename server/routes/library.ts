@@ -1,6 +1,7 @@
 // The shared library: students share study packs and past papers; anyone can find them by
 // faculty, course, university or year and add them to their own account in one tap.
 import crypto from 'node:crypto';
+import { detectOrigin, type PaperOrigin } from '../../shared/origin';
 import { Router } from 'express';
 import { z } from 'zod';
 import { adminEmails } from '../config';
@@ -189,6 +190,9 @@ libraryRouter.get('/suggest', async (req, res) => {
   const duplicate = shared ? null : await db('library_items').where({ text_hash: hash, status: 'live' }).whereNot('owner_id', uid).first('id', 'title');
   // a past paper borrows its course details from the pack it belongs to, if that pack is shared
   const packShare = src.kind === 'paper' ? await db('library_items').where({ owner_id: uid, kind: 'pack', pack_id: src.row.pack_id }).first() : null;
+  // where it is from: saved with the pack / paper (confirmed by the student), else read from the header
+  const packOrigin = src.kind === 'paper' ? parseJSON<PaperOrigin | null>((await db('packs').where({ id: src.row.pack_id }).first('origin'))?.origin, null) : null;
+  const og = parseJSON<PaperOrigin | null>(src.row.origin, null) || detectOrigin(src.text, src.title);
   res.json({
     suggestion: shared
       ? { title: shared.title, faculty: shared.faculty, type: shared.item_type, university: shared.university, courseCode: shared.course_code, courseName: shared.course_name, year: shared.year, semester: shared.semester, author: shared.author, description: shared.description }
@@ -196,11 +200,11 @@ libraryRouter.get('/suggest', async (req, res) => {
           title: src.title,
           faculty: packShare?.faculty || suggestFaculty(src.text, src.title),
           type: src.kind === 'paper' ? 'paper' : src.row.source_type === 'pptx' ? 'slides' : (src.data?.stats.words || 0) > 25_000 ? 'book' : 'notes',
-          university: packShare?.university || u?.university || '',
-          courseCode: packShare?.course_code || guessCourseCode(`${src.title}\n${src.text}`) || '',
-          courseName: packShare?.course_name || u?.course || '',
-          year: src.kind === 'paper' ? guessYear(src.text) : null,
-          semester: null,
+          university: og.university || packShare?.university || packOrigin?.university || u?.university || '',
+          courseCode: og.courseCode || packShare?.course_code || packOrigin?.courseCode || guessCourseCode(`${src.title}\n${src.text}`) || '',
+          courseName: og.courseName || packShare?.course_name || packOrigin?.courseName || u?.course || '',
+          year: src.kind === 'paper' ? og.year || guessYear(src.text) : null,
+          semester: og.semester ? `Semester ${['I', 'II', 'III'][og.semester - 1]}` : null,
           author: null,
           description: '',
         },

@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ClipboardPaste,
@@ -8,8 +8,10 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { api } from "../api";
-import { ACCEPT, extractFile, sourceTypeOf } from "../lib/extract";
+import { api, type PackSummary } from "../api";
+import { OriginCard, useOriginDetect } from "../components/OriginCard";
+import { originName } from "@shared/origin";
+import { ACCEPT, extractFile, plainText, sourceTypeOf } from "../lib/extract";
 import { isStaleBuildError, reloadForNewVersion } from "../lib/lazyPage";
 import type { OcrProgress } from "../lib/extract/ocr";
 import type { SourceBlock } from "@shared/engine/types";
@@ -48,6 +50,46 @@ export default function NewPack() {
   } | null>(null);
   const [ocr, setOcr] = useState<OcrProgress | null>(null);
   const abort = useRef<AbortController | null>(null);
+  // the file is read as soon as it is chosen, so we can say where it is from before making the pack
+  const [read, setRead] = useState<{ file: File; result: Awaited<ReturnType<typeof extractFile>> } | null>(null);
+  const [pasteText, setPasteText] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setPasteText(text.length > 150 ? text : ""), 900);
+    return () => window.clearTimeout(t);
+  }, [text]);
+  const headText = tab === "file" ? (read && read.file === file && !read.result.needsOcr ? plainText(read.result).slice(0, 8000) : null) : tab === "paste" ? pasteText.slice(0, 8000) || null : null;
+  const det = useOriginDetect(headText, tab === "file" ? file?.name || "" : "");
+  const [packs, setPacks] = useState<PackSummary[] | null>(null);
+  const [paperPack, setPaperPack] = useState<number | "">("");
+  useEffect(() => {
+    if (det.origin?.isPaper && !packs) api<{ packs: PackSummary[] }>("/packs").then((r) => setPacks(r.packs ?? [])).catch(() => setPacks([]));
+  }, [det.origin?.isPaper, packs]);
+
+  useEffect(() => {
+    if (!file) return;
+    let gone = false;
+    extractFile(file, () => {})
+      .then((result) => !gone && setRead({ file, result }))
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [file]);
+
+  /** A past paper belongs with its course: add it to a pack's past papers (the Exam coach uses them). */
+  async function addAsPastPaper() {
+    if (!paperPack || !headText) return;
+    setError(null);
+    setBusy("Reading the questions…");
+    try {
+      const all = tab === "file" && read ? plainText(read.result) : text;
+      await api(`/packs/${paperPack}/past-papers`, { body: { name: originName(det.origin, file?.name.replace(/\.[a-z0-9]+$/i, "") || "Past paper"), text: all, origin: det.origin } });
+      nav(`/pack/${paperPack}/paper#past-papers`);
+    } catch (e: any) {
+      setError(e.message || "Something went wrong. Try again.");
+      setBusy(null);
+    }
+  }
 
   const pickFile = (f: File | undefined | null) => {
     setError(null);
@@ -78,7 +120,7 @@ export default function NewPack() {
       if (tab === "file") {
         if (!file) return setError("Choose a file first.");
         setBusy("Opening your file…");
-        const r = await extractFile(file, setBusy);
+        const r = read && read.file === file ? read.result : await extractFile(file, setBusy);
         if (r.warning) setWarning(r.warning);
         if (r.needsOcr) {
           if (r.type === "image") return await readScan(1, 1, "image");
@@ -98,6 +140,7 @@ export default function NewPack() {
             title: title || undefined,
             blocks: r.blocks,
             examDate: exam,
+            origin: det.origin || undefined,
           },
         });
         id = res.id;
@@ -113,6 +156,7 @@ export default function NewPack() {
             title: title || undefined,
             text,
             examDate: exam,
+            origin: det.origin && (det.origin.university || det.origin.courseCode || det.origin.year) ? det.origin : undefined,
           },
         });
         id = res.id;
@@ -322,6 +366,32 @@ export default function NewPack() {
           </div>
         )}
 
+        {(tab === "file" || tab === "paste") && det.origin && (
+          <OriginCard origin={det.origin} refining={det.refining} ai={det.ai} onChange={det.setOrigin} />
+        )}
+        {(tab === "file" || tab === "paste") && det.origin?.isPaper && (
+          <div className="origin-paper-offer small">
+            <span>
+              <strong>Tip:</strong> add a past paper to its course’s study pack, and the Exam coach predicts what will come up.
+            </span>
+            {packs && packs.length > 0 && (
+              <>
+                <select className="input" style={{ maxWidth: 260 }} value={paperPack} onChange={(e) => setPaperPack(e.target.value ? Number(e.target.value) : "")} aria-label="Study pack for this past paper">
+                  <option value="">Choose the course pack…</option>
+                  {packs.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn small primary" onClick={addAsPastPaper} disabled={!paperPack || !!busy}>
+                  Add as a past paper
+                </button>
+              </>
+            )}
+            <span className="muted">Or make a study pack from it below.</span>
+          </div>
+        )}
         {tab === "topic" && (
           <>
             <div className="field">

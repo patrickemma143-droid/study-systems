@@ -7,6 +7,7 @@ import { api } from '../api';
 import { useToast } from '../components/ui';
 import { left, updateAiUsage, useAiStatus } from '../lib/ai';
 import { TutorFace } from '../components/TutorFace';
+import { useTutorPrefs } from '../lib/tutor/prefs';
 
 /** Shrink a photo before sending: sharp enough to read, small enough for mobile data. */
 async function shrink(file: File, max = 1600): Promise<string> {
@@ -31,6 +32,7 @@ async function shrink(file: File, max = 1600): Promise<string> {
 
 export default function Homework() {
   const nav = useNavigate();
+  const tutorPrefs = useTutorPrefs();
   const toast = useToast();
   const ai = useAiStatus();
   const [image, setImage] = useState<string | null>(null);
@@ -76,7 +78,7 @@ export default function Homework() {
   return (
     <div className="homework">
       <div className="hw-head">
-        <TutorFace size={52} />
+        <TutorFace size={52} tutor={tutorPrefs.prefs?.tutor} />
         <div>
           <h1>Stuck on a problem?</h1>
           <p className="muted" style={{ margin: 0 }}>

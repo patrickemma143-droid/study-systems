@@ -538,6 +538,17 @@ migrations['012_tutor_prefs'] = {
   async down() {},
 };
 
+migrations['013_origin'] = {
+  async up(k) {
+    // where and when a pack's material or a past paper is from (university, course, semester, date)
+    if (!(await k.schema.hasColumn('packs', 'origin'))) await k.schema.alterTable('packs', (t) => t.text('origin'));
+    if (!(await k.schema.hasColumn('past_papers', 'origin'))) await k.schema.alterTable('past_papers', (t) => t.text('origin'));
+    // what the student wrote on a whiteboard lesson
+    if (!(await k.schema.hasColumn('tutor_lessons', 'ink'))) await k.schema.alterTable('tutor_lessons', (t) => (k.client.config.client === 'mysql2' ? t.specificType('ink', 'mediumtext') : t.text('ink')));
+  },
+  async down() {},
+};
+
 export async function migrate(): Promise<void> {
   const opts = {
     migrationSource: {

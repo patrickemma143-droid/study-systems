@@ -3,12 +3,15 @@
 // the board, and finishes with practice that turns into flashcards.
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Keyboard, Layers, LocateFixed, Maximize2, Mic, MicOff, Pause, Play, RotateCcw, Send, Settings2, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eraser, Highlighter, Keyboard, Layers, LocateFixed, Maximize2, Mic, MicOff, Minimize2, PenLine, ScanEye, Trash2, Undo2, Pause, Play, RotateCcw, Send, Settings2, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { api } from '../api';
 import { useToast } from '../components/ui';
-import Board, { type QuizEl, type ShownItem } from '../components/Board';
+import Board, { type InkTool, type QuizEl, type ShownItem } from '../components/Board';
+import { INK_COLOURS, type InkStroke } from '../../shared/ink';
 import { TutorFace } from '../components/TutorFace';
 import { TutorPicker } from '../components/TutorPicker';
+import { TutorAvatar, type Reaction } from '../components/TutorAvatar';
+import { unlockMeter } from '../lib/tutor/meter';
 import { useAiStatus, updateAiUsage, left } from '../lib/ai';
 import { Narrator, type Track } from '../lib/tutor/narrator';
 import { listenOnce, matchOption, recognitionSupported, recordWav, recordingSupported, type Listening } from '../lib/tutor/listen';
@@ -26,6 +29,7 @@ interface LessonReply {
   packTitle: string | null;
   next: { chunk: number; title: string } | null;
   voice: boolean;
+  ink?: InkStroke[];
 }
 /** A step as played: lesson steps, plus answers to the student's questions put in between. */
 type PlayStep = TutorStep & { lessonIndex: number; asked?: boolean };
@@ -75,7 +79,7 @@ function TutorStart() {
   return (
     <div className="tutor-start">
       <div className="tutor-warm">
-        <TutorFace speaking={!error} size={84} look={persona.look} />
+        <TutorFace speaking={!error} size={84} tutor={persona.id} />
         {error ? (
           <>
             <h2>That lesson didn’t start</h2>
@@ -134,12 +138,20 @@ function TutorPlayer({ id }: { id: number }) {
   const [overview, setOverview] = useState(false);
   const [picker, setPicker] = useState(false);
   const [typing, setTyping] = useState(false);
+  // the student's own writing on the board
+  const [ink, setInk] = useState<InkStroke[]>([]);
+  const [tool, setTool] = useState<InkTool | null>(null);
+  const [penColour, setPenColour] = useState(INK_COLOURS[1]);
+  const inkSaved = useRef<string>('[]');
+  const checkedUpTo = useRef(0);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [listening, setListening] = useState<'speech' | 'record' | null>(null);
   const [heard, setHeard] = useState('');
   const [result, setResult] = useState<{ score: number; total: number; points: number } | null>(null);
   const [showEnd, setShowEnd] = useState(false);
+  const [reaction, setReaction] = useState<Reaction>(null);
+  const [camMin, setCamMin] = useState(() => window.innerWidth < 380);
   const narrator = useRef<Narrator | null>(null);
   const track = useRef<{ step: number; t: Track; offsets: number[] } | null>(null);
   const runToken = useRef(0);
@@ -155,6 +167,9 @@ function TutorPlayer({ id }: { id: number }) {
     api<LessonReply>(`/tutor/lessons/${id}`)
       .then((r) => {
         setData(r);
+        setInk(r.ink || []);
+        inkSaved.current = JSON.stringify(r.ink || []);
+        checkedUpTo.current = (r.ink || []).length;
         const s = r.lesson.steps.map((x, i) => ({ ...x, lessonIndex: i }));
         stepsRef.current = s;
         setSteps(s);
@@ -275,6 +290,7 @@ function TutorPlayer({ id }: { id: number }) {
       setQuiz({ ...quizRef.current[qid], chosen });
       setPhase('playing');
       const ok = chosen === check.answer;
+      setReaction({ kind: ok ? 'happy' : 'think', n: Date.now() });
       const feedback = ok ? `${pick(PRAISE)} ${check.explain}` : `Not quite. The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`;
       return narrate(feedback, token);
     },
@@ -334,6 +350,7 @@ function TutorPlayer({ id }: { id: number }) {
     setPhase('paused');
   }
   function play() {
+    unlockMeter(); // a tap: the voice can now be measured for lip sync
     if (phase === 'ready' || phase === 'done') {
       void runFrom(phase === 'done' ? 0 : Math.min(data?.step || 0, stepsRef.current.length - 1));
       return;
@@ -363,18 +380,82 @@ function TutorPlayer({ id }: { id: number }) {
     if (awaitingRef.current === qid && answerFn.current) answerFn.current(i);
   }
 
+  // save the student's writing a moment after they stop (it comes back when the lesson is reopened)
+  useEffect(() => {
+    const json = JSON.stringify(ink);
+    if (json === inkSaved.current) return;
+    const t = window.setTimeout(() => {
+      api(`/tutor/lessons/${id}`, { method: 'PATCH', body: { ink } })
+        .then(() => (inkSaved.current = json))
+        .catch((e) => toast(e.message));
+    }, 1200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ink, id]);
+
+  /** A picture of what the student wrote (the newest writing, or all of it), for the tutor to read. */
+  function inkPicture(): string | null {
+    const fresh = ink.slice(checkedUpTo.current);
+    const strokes = fresh.length ? fresh : ink;
+    if (!strokes.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const st of strokes)
+      for (let i = 0; i < st.pts.length; i += 2) {
+        x0 = Math.min(x0, st.pts[i] - st.w);
+        y0 = Math.min(y0, st.pts[i + 1] - st.w);
+        x1 = Math.max(x1, st.pts[i] + st.w);
+        y1 = Math.max(y1, st.pts[i + 1] + st.w);
+      }
+    const pad = 24;
+    const k = Math.min(2, 1100 / Math.max(x1 - x0 + pad * 2, y1 - y0 + pad * 2, 1));
+    const c = document.createElement('canvas');
+    c.width = Math.ceil((x1 - x0 + pad * 2) * k);
+    c.height = Math.ceil((y1 - y0 + pad * 2) * k);
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const st of strokes) {
+      g.globalAlpha = st.tool === 'marker' ? 0.38 : 1;
+      g.strokeStyle = st.color;
+      g.lineWidth = st.w * k;
+      g.beginPath();
+      for (let i = 0; i < st.pts.length; i += 2) {
+        const px = (st.pts[i] - x0 + pad) * k;
+        const py = (st.pts[i + 1] - y0 + pad) * k;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      if (st.pts.length === 2) g.lineTo((st.pts[0] - x0 + pad) * k + 0.1, (st.pts[1] - y0 + pad) * k);
+      g.stroke();
+    }
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+
+  /** "Check my writing": the tutor reads what the student wrote and answers on the board. */
+  function checkWriting() {
+    const pic = inkPicture();
+    if (!pic) return toast('Write your working or answer on the board first.');
+    pause();
+    setReaction({ kind: 'think', n: Date.now() });
+    checkedUpTo.current = ink.length;
+    void ask(question.trim(), undefined, pic);
+  }
+
   /** "I have a question": the answer is taught on a fresh part of the board, then the lesson goes on. */
-  async function ask(text: string, audio?: string) {
+  async function ask(text: string, audio?: string, image?: string) {
     const step = stepsRef.current[cur];
-    if (!step || (!text.trim() && !audio)) return;
+    if (!step || (!text.trim() && !audio && !image)) return;
     setAsking(true);
-    setCaption(text ? `You asked: ${text}` : 'Listening to your question…');
+    setCaption(text ? `You asked: ${text}` : image ? `${persona.name} is reading what you wrote…` : 'Listening to your question…');
     try {
-      const r = await api<{ steps: TutorStep[]; heard?: string; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text.trim() || undefined, audio } });
+      const r = await api<{ steps: TutorStep[]; heard?: string; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text.trim() || undefined, audio, image } });
       updateAiUsage(r.usage);
-      const q = text.trim() || r.heard || 'your question';
+      const q = text.trim() || r.heard || (image ? 'check what I wrote' : 'your question');
       const heading: BoardItem = { t: 'heading', text: `You asked: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` };
       const extra: PlayStep[] = r.steps.map((s, k) => ({ ...s, board: k === 0 ? [heading, ...s.board.filter((b) => b.t !== 'clear')] : s.board, lessonIndex: step.lessonIndex, asked: true }));
+      setReaction({ kind: 'nod', n: Date.now() });
       // finish writing this step, then teach the answer straight after it
       setRevealed(step.board.length);
       const all = [...stepsRef.current.slice(0, cur + 1), ...extra, ...stepsRef.current.slice(cur + 1)];
@@ -462,6 +543,11 @@ function TutorPlayer({ id }: { id: number }) {
       else if (e.key.toLowerCase() === 'q') {
         pause();
         setTyping(true);
+      } else if (e.key.toLowerCase() === 'p') setTool((t) => (t ? null : { tool: 'pen', color: penColour, w: 3 }));
+      else if (e.key === 'Escape' && tool) setTool(null);
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && tool) {
+        e.preventDefault();
+        setInk((k) => k.slice(0, -1));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -553,10 +639,66 @@ function TutorPlayer({ id }: { id: number }) {
             setOverview(false);
           }}
           onAnswer={answer}
+          ink={ink}
+          tool={tool}
+          onInk={setInk}
         />
+        {tool && (
+          <div className="tf-inkbar" role="toolbar" aria-label="Write on the board">
+            <button className="ib" aria-pressed={tool.tool === 'pen'} onClick={() => setTool({ tool: 'pen', color: penColour, w: 3 })} aria-label="Pen" title="Pen (P)">
+              <PenLine size={17} />
+            </button>
+            <button className="ib" aria-pressed={tool.tool === 'marker'} onClick={() => setTool({ tool: 'marker', color: tool.tool === 'marker' ? tool.color : INK_COLOURS[4], w: 18 })} aria-label="Highlighter" title="Highlighter">
+              <Highlighter size={17} />
+            </button>
+            <button className="ib" aria-pressed={tool.tool === 'eraser'} onClick={() => setTool({ ...tool, tool: 'eraser' })} aria-label="Eraser" title="Eraser">
+              <Eraser size={17} />
+            </button>
+            <span className="sep" />
+            {INK_COLOURS.map((c) => (
+              <button
+                key={c}
+                className="dot"
+                style={{ background: c }}
+                aria-pressed={tool.tool !== 'eraser' && tool.color === c}
+                aria-label={`Colour ${c}`}
+                onClick={() => {
+                  if (tool.tool !== 'marker') setPenColour(c);
+                  setTool({ tool: tool.tool === 'eraser' ? 'pen' : tool.tool, color: c, w: tool.tool === 'marker' ? 18 : 3 });
+                }}
+              />
+            ))}
+            <span className="sep" />
+            <button className="ib" onClick={() => setInk((k) => k.slice(0, -1))} disabled={!ink.length} aria-label="Undo" title="Undo (Ctrl+Z)">
+              <Undo2 size={17} />
+            </button>
+            <button
+              className="ib"
+              onClick={() => {
+                if (ink.length && window.confirm('Clear everything you wrote on this board?')) {
+                  setInk([]);
+                  checkedUpTo.current = 0;
+                }
+              }}
+              disabled={!ink.length}
+              aria-label="Clear my writing"
+              title="Clear my writing"
+            >
+              <Trash2 size={16} />
+            </button>
+            {ai?.enabled && (
+              <button className="btn small primary" onClick={checkWriting} disabled={asking || !ink.length} title={`${persona.name} reads what you wrote and helps`}>
+                <ScanEye size={15} /> Check my writing
+              </button>
+            )}
+            <button className="ib" onClick={() => setTool(null)} aria-label="Stop writing" title="Done (Esc)">
+              <X size={17} />
+            </button>
+          </div>
+        )}
         {phase === 'ready' && (
           <button className="tutor-startbtn" onClick={play}>
-            <TutorFace look={persona.look} size={92} />
+            <TutorFace tutor={persona.id} size={92} />
             <span className="tutor-startcircle">
               <Play size={30} />
             </span>
@@ -565,6 +707,17 @@ function TutorPlayer({ id }: { id: number }) {
               {lessonSteps} steps{checks ? ` · ${checks} quick checks` : ''} · about {mins} min · talk to {persona.name} any time with the mic
             </span>
           </button>
+        )}
+        {prefs.avatar && (
+          <div className={`tf-cam ${camMin ? 'min' : ''} ${speaking ? 'speaking' : ''} ${listening ? 'listening' : ''}`}>
+            <TutorAvatar tutor={persona.id} speaking={speaking} listening={!!listening || !!awaiting} reaction={reaction} framing={camMin ? 'face' : 'bust'} />
+            <span className="tf-cam-name">
+              <i /> {persona.name}
+            </span>
+            <button className="tf-cam-min" onClick={() => setCamMin((m) => !m)} aria-label={camMin ? `Show ${persona.name} bigger` : `Make ${persona.name} smaller`} title={camMin ? 'Show bigger' : 'Make smaller'}>
+              {camMin ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+            </button>
+          </div>
         )}
         {!follow && !overview && phase !== 'ready' && (
           <button className="tf-follow" onClick={() => setFollow(true)}>
@@ -603,7 +756,7 @@ function TutorPlayer({ id }: { id: number }) {
       )}
 
       <footer className="tf-bar">
-        <TutorFace look={persona.look} size={48} speaking={speaking} listening={!!listening} />
+        <TutorFace tutor={persona.id} size={48} speaking={speaking} listening={!!listening} />
         <div className="tf-ctrls">
           {phase === 'playing' ? (
             <button className="tf-btn" onClick={pause} aria-label="Pause">
@@ -628,6 +781,9 @@ function TutorPlayer({ id }: { id: number }) {
           {listening || asking ? <span className="tf-heard">{heard || (asking ? 'Thinking about your question…' : 'Listening…')}</span> : prefs.captions || prefs.sound === 'silent' ? caption : ''}
         </p>
         <div className="tf-talk">
+          <button className={`tf-btn ${tool ? 'on' : ''}`} onClick={() => setTool((t) => (t ? null : { tool: 'pen', color: penColour, w: 3 }))} aria-label={tool ? 'Stop writing on the board' : 'Write on the board'} aria-pressed={!!tool} title="Write on the board (P)">
+            <PenLine size={19} />
+          </button>
           <button
             className="tf-btn"
             onClick={() => {

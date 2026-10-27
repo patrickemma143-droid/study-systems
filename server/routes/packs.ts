@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { cleanOrigin, detectOrigin } from '../../shared/origin';
 import { regenerate } from './plan';
 import { readinessFor } from '../readiness';
 import { z } from 'zod';
@@ -40,6 +41,8 @@ const createSchema = z
     blocks: z.array(blockSchema).max(60_000).optional(),
     text: z.string().max(1_500_000).optional(),
     examDate: dateStr,
+    /** where and when the material is from, as the student confirmed it */
+    origin: z.any().optional(),
   })
   .refine((b) => (b.blocks && b.blocks.length) || (b.text && b.text.trim().length), { message: 'Add some notes or a file first.' });
 
@@ -47,7 +50,14 @@ function sourceText(blocks: SourceBlock[]): string {
   return blocks.map((b) => (b.kind === 'heading' ? `\n${b.text}\n` : b.kind === 'item' ? `- ${b.text}` : b.text)).join('\n');
 }
 
-export async function savePack(uid: number, pack: StudyPack, meta: { sourceType: string; sourceName?: string; examDate?: string | null; text: string; libraryItemId?: number }) {
+/** Where the material is from: the student's confirmed version, or what the header says. */
+export function originFor(text: string, name: string | undefined, given?: unknown): string | null {
+  const o = given ? cleanOrigin(given) : detectOrigin(text, name || '');
+  const any = o.university || o.courseCode || o.courseName || o.year || o.academicYear || o.examType;
+  return any ? JSON.stringify(o) : null;
+}
+
+export async function savePack(uid: number, pack: StudyPack, meta: { sourceType: string; sourceName?: string; examDate?: string | null; text: string; libraryItemId?: number; origin?: string | null }) {
   const t = now();
   const id = await db.transaction(async (trx) => {
     const [packId] = await trx('packs').insert({
@@ -57,6 +67,7 @@ export async function savePack(uid: number, pack: StudyPack, meta: { sourceType:
       source_name: meta.sourceName || null,
       exam_date: meta.examDate || null,
       source_text: meta.text,
+      origin: meta.origin ?? null,
       ...(meta.libraryItemId ? { library_item_id: meta.libraryItemId } : {}),
       data: JSON.stringify(pack),
       stats: JSON.stringify(pack.stats),
@@ -93,7 +104,7 @@ packsRouter.post('/', async (req, res) => {
   const firstHeading = blocks.slice(0, 4).find((b) => b.kind === 'heading' && b.text.split(/\s+/).length <= 14)?.text;
   const pack = buildStudyPack(blocks, { title: body.title || firstHeading || body.sourceName?.replace(/\.[a-z0-9]+$/i, '') });
   assertUsable(pack);
-  const id = await savePack(userId(res), pack, { sourceType: body.sourceType, sourceName: body.sourceName, examDate: body.examDate, text });
+  const id = await savePack(userId(res), pack, { sourceType: body.sourceType, sourceName: body.sourceName, examDate: body.examDate, text, origin: originFor(text, body.sourceName, body.origin) });
   refreshPlan(userId(res));
   res.status(201).json({ id });
 });
@@ -130,7 +141,7 @@ packsRouter.get('/', async (_req, res) => {
   const t = now();
   const packs = await db('packs')
     .where({ user_id: uid })
-    .select('id', 'title', 'source_type', 'source_name', 'exam_date', 'stats', 'created_at', 'last_opened_at')
+    .select('id', 'title', 'source_type', 'source_name', 'exam_date', 'stats', 'created_at', 'last_opened_at', 'origin')
     .orderBy([{ column: 'last_opened_at', order: 'desc' }, { column: 'id', order: 'desc' }]);
   const cardRows = await db('cards')
     .where({ user_id: uid, suspended: false })
@@ -160,6 +171,7 @@ packsRouter.get('/', async (_req, res) => {
         title: p.title,
         sourceType: p.source_type,
         examDate: p.exam_date,
+        origin: parseJSON(p.origin, null),
         createdAt: Number(p.created_at),
         lastOpenedAt: Number(p.last_opened_at || p.created_at),
         stats,
@@ -210,6 +222,7 @@ packsRouter.get('/:id', async (req, res) => {
       sourceType: row.source_type,
       sourceName: row.source_name,
       examDate: row.exam_date,
+      origin: parseJSON(row.origin, null),
       createdAt: Number(row.created_at),
       libraryItemId: row.library_item_id ?? null,
       sharedItemId: (await db('library_items').where({ owner_id: uid, kind: 'pack', pack_id: id }).first('id'))?.id ?? null,
@@ -231,9 +244,10 @@ packsRouter.patch('/:id', async (req, res) => {
   const uid = userId(res);
   const id = Number(req.params.id);
   await ownPack(uid, id);
-  const body = z.object({ title: z.string().trim().min(1).max(200).optional(), examDate: dateStr }).parse(req.body);
+  const body = z.object({ title: z.string().trim().min(1).max(200).optional(), examDate: dateStr, origin: z.any().optional() }).parse(req.body);
   const patch: Record<string, unknown> = { updated_at: now() };
   if (body.title !== undefined) patch.title = body.title;
+  if (body.origin !== undefined) patch.origin = body.origin === null ? null : JSON.stringify(cleanOrigin(body.origin));
   if (body.examDate !== undefined) patch.exam_date = body.examDate;
   await db('packs').where({ id }).update(patch);
   refreshPlan(userId(res));

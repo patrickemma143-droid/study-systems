@@ -5,6 +5,7 @@ import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
 import { analyzeKey, analyzePaper, type KeyAnalysis, type PaperAnalysis } from '../../shared/engine/paper';
 import type { StudyPack } from '../../shared/engine/types';
+import { cleanOrigin, detectOrigin, type PaperOrigin } from '../../shared/origin';
 
 export const papersRouter = Router();
 papersRouter.use(requireAuth);
@@ -15,7 +16,16 @@ async function ownPack(uid: number, id: number) {
   return parseJSON<StudyPack | null>(row.data, null) || undefined;
 }
 
-const out = (r: any) => ({ id: r.id, name: r.name, analysis: parseJSON<PaperAnalysis | null>(r.analysis, null), key: parseJSON<KeyAnalysis | null>(r.key_analysis, null), createdAt: Number(r.created_at) });
+/** Questions that came out of a PDF or text file on one line ("… (4 marks) 2. Explain …") go back on their own lines. */
+export function splitRunTogether(text: string) {
+  return text
+    .replace(/([)\].?])\s+(\d{1,2}[.)]\s+(?=[A-Z(]))/g, '$1\n$2')
+    .replace(/\s+(SECTION\s+[A-Z]\b)/g, '\n$1')
+    .replace(/\b(SECTION\s+[A-Z])\s+(\d{1,2}[.)]\s)/g, '$1\n$2')
+    .replace(/\s+((?:QUESTION|Question)\s+(?:\d{1,2}|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)\b)/g, '\n$1');
+}
+
+const out = (r: any) => ({ id: r.id, name: r.name, origin: parseJSON<PaperOrigin | null>(r.origin, null), analysis: parseJSON<PaperAnalysis | null>(r.analysis, null), key: parseJSON<KeyAnalysis | null>(r.key_analysis, null), createdAt: Number(r.created_at) });
 
 /** Every past paper the student has uploaded, in any course pack, so a format learnt once can be used anywhere. */
 papersRouter.get('/all/past-papers', async (_req, res) => {
@@ -25,14 +35,14 @@ papersRouter.get('/all/past-papers', async (_req, res) => {
     .where('pp.user_id', uid)
     .orderBy('pp.id', 'desc')
     .limit(100)
-    .select('pp.id', 'pp.name', 'pp.analysis', 'pp.key_analysis', 'pp.created_at', 'pp.pack_id', 'p.title as pack_title');
+    .select('pp.id', 'pp.name', 'pp.origin', 'pp.analysis', 'pp.key_analysis', 'pp.created_at', 'pp.pack_id', 'p.title as pack_title');
   res.json({ papers: rows.map((r: any) => ({ ...out(r), packId: r.pack_id, packTitle: r.pack_title })) });
 });
 
 papersRouter.get('/:id/past-papers', async (req, res) => {
   const uid = userId(res);
   await ownPack(uid, Number(req.params.id));
-  const rows = await db('past_papers').where({ user_id: uid, pack_id: Number(req.params.id) }).orderBy('id', 'desc').select('id', 'name', 'analysis', 'key_analysis', 'created_at');
+  const rows = await db('past_papers').where({ user_id: uid, pack_id: Number(req.params.id) }).orderBy('id', 'desc').select('id', 'name', 'origin', 'analysis', 'key_analysis', 'created_at');
   res.json({ papers: rows.map(out) });
 });
 
@@ -45,12 +55,15 @@ papersRouter.post('/:id/past-papers', async (req, res) => {
       name: z.string().trim().min(1).max(200),
       text: z.string().trim().min(80, 'We found very little text in that paper. Try a clearer scan or photo, or paste the questions instead.').max(300_000),
       keyText: z.string().trim().max(300_000).optional(),
+      origin: z.any().optional(),
     })
     .parse(req.body);
+  const origin = body.origin ? cleanOrigin(body.origin) : detectOrigin(body.text, body.name);
+  body.text = splitRunTogether(body.text);
   const analysis = analyzePaper(body.text, pack);
   const key = body.keyText && body.keyText.length > 20 ? analyzeKey(body.keyText, analysis) : null;
   if (analysis.questionCount < 2) throw new HttpError(422, 'We couldn’t find numbered questions in that paper. Check that the questions start with numbers like “1.” or “Question 1”.');
-  const [id] = await db('past_papers').insert({ user_id: uid, pack_id: packId, name: body.name, text: body.text, analysis: JSON.stringify(analysis), key_text: key ? body.keyText : null, key_analysis: key ? JSON.stringify(key) : null, created_at: now() });
+  const [id] = await db('past_papers').insert({ user_id: uid, pack_id: packId, name: body.name, origin: JSON.stringify(origin), text: body.text, analysis: JSON.stringify(analysis), key_text: key ? body.keyText : null, key_analysis: key ? JSON.stringify(key) : null, created_at: now() });
   const row = await db('past_papers').where({ id }).first();
   res.status(201).json({ paper: out(row) });
 });

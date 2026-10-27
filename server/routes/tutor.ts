@@ -1,6 +1,7 @@
 // The whiteboard tutor: lessons taught step by step on a board with a natural voice, questions in
 // the middle of a lesson, snapped homework problems, and practice that turns into flashcards.
 import crypto from 'node:crypto';
+import { cleanInk } from '../../shared/ink';
 import { Router } from 'express';
 import { z } from 'zod';
 import { ai, voice } from '../config';
@@ -156,12 +157,19 @@ tutorRouter.get('/lessons/:id', async (req, res) => {
       if (row.chunk_index != null && data && data.chunks[row.chunk_index + 1]) next = { chunk: row.chunk_index + 1, title: data.chunks[row.chunk_index + 1].title };
     }
   }
-  res.json({ id: row.id, lesson, step: row.step, packId: row.pack_id, chunk: row.chunk_index, packTitle, next, voice: voice.enabled });
+  res.json({ id: row.id, lesson, step: row.step, packId: row.pack_id, chunk: row.chunk_index, packTitle, next, voice: voice.enabled, ink: cleanInk(parseJSON(row.ink, [])) });
 });
 
 tutorRouter.patch('/lessons/:id', async (req, res) => {
-  const b = z.object({ step: z.number().int().min(0).max(100) }).parse(req.body);
-  await db('tutor_lessons').where({ id: Number(req.params.id), user_id: userId(res) }).update({ step: b.step, opened_at: now() });
+  const b = z.object({ step: z.number().int().min(0).max(100).optional(), ink: z.array(z.any()).max(600).optional() }).parse(req.body);
+  const patch: Record<string, unknown> = { opened_at: now() };
+  if (b.step !== undefined) patch.step = b.step;
+  if (b.ink !== undefined) {
+    const ink = JSON.stringify(cleanInk(b.ink));
+    if (ink.length > 900_000) throw new HttpError(413, 'There is a lot of writing on this board. Clear some of it to keep saving.');
+    patch.ink = ink;
+  }
+  await db('tutor_lessons').where({ id: Number(req.params.id), user_id: userId(res) }).update(patch);
   res.json({ ok: true });
 });
 
@@ -175,11 +183,14 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
       question: z.string().trim().max(800).optional(),
       // a spoken question, recorded on the phone (WAV), when the browser can't turn speech into text
       audio: z.string().max(3_000_000).regex(/^data:audio\/(wav|x-wav|mpeg|mp4|ogg|aac|flac);base64,[A-Za-z0-9+/=]+$/).optional(),
+      // what the student wrote on the board, as a picture ("check my working")
+      image: z.string().max(2_000_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/).optional(),
     })
-    .refine((x) => (x.question && x.question.length >= 2) || x.audio, { message: 'Ask your question first.' })
+    .refine((x) => (x.question && x.question.length >= 2) || x.audio || x.image, { message: 'Ask your question first.' })
     .parse(req.body);
   if (b.audio && ai.provider === 'claude') throw new HttpError(400, 'Type your question — spoken questions need the Gemini AI.');
   const audio = b.audio ? { mime: b.audio.slice(5, b.audio.indexOf(';')).replace('x-wav', 'wav'), data: b.audio.slice(b.audio.indexOf(',') + 1) } : undefined;
+  const image = b.image ? { mime: b.image.slice(5, b.image.indexOf(';')), data: b.image.slice(b.image.indexOf(',') + 1) } : undefined;
   const { lesson } = await lessonRow(uid, Number(req.params.id));
   const upto = lesson.steps.slice(0, b.step + 1);
   const sofar = upto.map((s) => s.say).join('\n');
@@ -189,7 +200,7 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
   const board = items.slice(lastClear + 1).map(boardText).filter(Boolean).join('\n');
   try {
     const q = b.question || '';
-    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${q.toLowerCase()}\n${audio ? hash(audio.data) : ''}`, askRequest(lesson.title, sofar, board, q, audio), (raw) => {
+    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${q.toLowerCase()}\n${audio ? hash(audio.data) : ''}\n${image ? hash(image.data) : ''}`, askRequest(lesson.title, sofar, board, q, audio, image), (raw) => {
       const steps = cleanSteps(raw?.steps, 5);
       if (!steps.length) throw new AiError('The tutor could not answer that one. Try asking another way.');
       const heard = typeof raw?.heard === 'string' ? raw.heard.trim().slice(0, 300) : '';

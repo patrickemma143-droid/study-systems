@@ -6,17 +6,20 @@ import type { Level } from '@shared/engine/levels';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Crumbs, ErrorState, Loading, useToast } from '../components/ui';
-import { ACCEPT, extractWithOcr } from '../lib/extract';
+import { ACCEPT, extractWithOcr, plainText } from '../lib/extract';
 import { usePack, useStudyTimer } from '../lib/usePack';
 import { left, updateAiUsage, useAiStatus } from '../lib/ai';
 import { ShareToLibrary } from '../components/LibraryParts';
 import { AnswerMarker } from '../components/AnswerMarker';
+import { OriginCard, useOriginDetect } from '../components/OriginCard';
+import { originLabel, originName, type PaperOrigin } from '@shared/origin';
 
 interface PastPaper {
   id: number;
   packId?: number;
   packTitle?: string;
   name: string;
+  origin?: PaperOrigin | null;
   analysis: PaperAnalysis | null;
   key: KeyAnalysis | null;
   createdAt: number;
@@ -317,22 +320,45 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
   const [sharing, setSharing] = useState<number | null>(null);
   const paperInput = useRef<HTMLInputElement>(null);
   const keyInput = useRef<HTMLInputElement>(null);
+  // read the paper as soon as it is chosen, to say where and when it is from
+  const [paperText, setPaperText] = useState<{ file: File; text: string } | null>(null);
+  const [pasteHead, setPasteHead] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(() => setPasteHead(paste.length > 150 ? paste.slice(0, 8000) : ''), 900);
+    return () => window.clearTimeout(t);
+  }, [paste]);
+  useEffect(() => {
+    if (!paperFile) return;
+    let gone = false;
+    setBusy('Reading the paper…');
+    extractWithOcr(paperFile, (m) => !gone && setBusy(`Reading the paper: ${m}`))
+      .then((r) => !gone && setPaperText({ file: paperFile, text: plainText(r) }))
+      .catch((e) => !gone && toast(e.message))
+      .finally(() => !gone && setBusy(null));
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperFile]);
+  const head = paperFile ? (paperText?.file === paperFile ? paperText.text.slice(0, 8000) : null) : pasteHead || null;
+  const det = useOriginDetect(head, paperFile?.name || '');
 
   async function readText(f: File, label: string) {
     const r = await extractWithOcr(f, (m) => setBusy(`${label}: ${m}`));
-    return r.blocks.map((b) => b.text).join('\n');
+    return plainText(r);
   }
 
   async function add() {
     if (!paperFile && !paste.trim()) return toast('Choose the past paper file, or paste its questions.');
     try {
-      const text = paperFile ? await readText(paperFile, 'Past paper') : paste;
+      const text = paperFile ? (paperText?.file === paperFile ? paperText.text : await readText(paperFile, 'Past paper')) : paste;
       const keyText = keyFile ? await readText(keyFile, 'Marking key') : pasteKey.trim() || undefined;
       setBusy('Working out how the questions are set…');
-      const r = await api<{ paper: PastPaper }>(`/packs/${packId}/past-papers`, { body: { name: name.trim() || paperFile?.name.replace(/\.[^.]+$/, '') || 'Past paper', text, keyText } });
+      const r = await api<{ paper: PastPaper }>(`/packs/${packId}/past-papers`, { body: { name: name.trim() || originName(det.origin, paperFile?.name.replace(/\.[^.]+$/, '') || 'Past paper'), text, keyText, origin: det.origin || undefined } });
       onChange([r.paper, ...papers]);
       onUse(r.paper.id);
       setPaperFile(null);
+      setPaperText(null);
       setKeyFile(null);
       setPaste('');
       setPasteKey('');
@@ -402,8 +428,9 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
             <textarea className="textarea" style={{ minHeight: 90 }} placeholder={'Marking key (optional)\n1. Movement of water molecules from… (1 mark each point)\n2. …'} value={pasteKey} onChange={(e) => setPasteKey(e.target.value)} aria-label="Marking key" />
           </div>
         </details>
+        {det.origin && <OriginCard origin={det.origin} refining={det.refining} ai={det.ai} onChange={det.setOrigin} />}
         <div className="row">
-          <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Name, e.g. BIO 1101 May 2025" value={name} onChange={(e) => setName(e.target.value)} aria-label="Past paper name" />
+          <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder={det.origin && originLabel(det.origin) ? originName(det.origin, 'Name, e.g. BIO 1101 May 2025') : 'Name, e.g. BIO 1101 May 2025'} value={name} onChange={(e) => setName(e.target.value)} aria-label="Past paper name" />
           <button className="btn primary" onClick={add} disabled={!!busy || (!paperFile && !paste.trim())}>
             <Wand2 size={16} /> Read this paper
           </button>
@@ -420,6 +447,7 @@ function PastPapers({ packId, papers, onChange, onUse, chunkTitle, toast }: { pa
           <div className="row between">
             <div>
               <strong>{p.name}</strong>
+              {p.origin && originLabel(p.origin) && <div className="small origin-line">{originLabel(p.origin, { short: true })}</div>}
               <div className="small muted">{p.key ? `With marking key: answers for ${Object.keys(p.key.answers).length} questions, ${p.key.style}` : 'No marking key yet'}</div>
             </div>
             <div className="row" style={{ gap: 6 }}>
