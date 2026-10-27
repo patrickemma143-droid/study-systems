@@ -1822,7 +1822,7 @@ label.btn {
 .anat-slider { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(255,255,255,.95); border-radius: 12px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; color: var(--ink); }
 .anat-slider input { flex: 1; }
 .anat-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 64px; background: var(--hl-yellow); color: var(--hl-ink); padding: 6px 12px; border-radius: 999px; font-size: .82rem; font-weight: 500; white-space: nowrap; }
-.anat-label { position: absolute; transform: translate(-50%, -140%); background: #fff; color: var(--ink); padding: 4px 10px; border-radius: 8px; font-size: .85rem; font-weight: 600; pointer-events: none; box-shadow: 0 3px 12px rgba(0,0,0,.3); white-space: nowrap; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; }
+.anat-label { position: absolute; transform: translate(-50%, -140%); background: #fff; color: #17172f; padding: 4px 10px; border-radius: 8px; font-size: .85rem; font-weight: 600; pointer-events: none; box-shadow: 0 3px 12px rgba(0,0,0,.3); white-space: nowrap; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; }
 .anat-label::after { content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #fff; border-bottom: 0; }
 .anat-quizbar { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(255,255,255,.96); border-radius: 14px; padding: 10px 14px; color: var(--ink); box-shadow: 0 4px 18px rgba(0,0,0,.3); }
 .anat-panel { overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
@@ -1993,7 +1993,7 @@ label.btn {
 .tutor-stage .board { height: min(62dvh, 600px); min-height: 360px; }
 .tutor-stage.answering .board { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sky) 45%, transparent), var(--shadow-sheet); }
 .tutor-qbanner { position: absolute; z-index: 2; top: 12px; right: 14px; display: inline-flex; gap: 6px; align-items: center; background: var(--sky); color: #fff; font-weight: 800; font-size: 0.8rem; padding: 4px 12px; border-radius: 99px; }
-.tutor-startbtn { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 0; background: rgba(255, 255, 255, 0.72); backdrop-filter: blur(2px); font: inherit; font-size: 1.15rem; font-weight: 800; color: var(--ink); cursor: pointer; border-radius: 24px; }
+.tutor-startbtn { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 0; background: color-mix(in srgb, var(--paper) 72%, transparent); backdrop-filter: blur(2px); font: inherit; font-size: 1.15rem; font-weight: 800; color: var(--ink); cursor: pointer; border-radius: 24px; }
 .tutor-startcircle { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; background: var(--grad); color: #fff; box-shadow: 0 14px 30px -10px rgba(90, 72, 245, 0.7); transition: transform 0.15s; }
 .tutor-startbtn:hover .tutor-startcircle { transform: scale(1.06); }
 .tutor-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--paper); border-radius: 20px; box-shadow: var(--shadow-sheet); padding: 10px 12px; }
@@ -2055,12 +2055,12 @@ label.btn {
 .learn-hero h1 { margin: 0; font-size: clamp(1.45rem, 1.1rem + 1.6vw, 2.15rem); }
 .learn-hi { margin: 0; color: var(--ink-2); font-weight: 700; }
 .learn-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.learn-tabs button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.6); color: var(--ink-2); font: inherit; font-weight: 800; font-size: 0.92rem; padding: 8px 14px; border-radius: 99px; cursor: pointer; }
+.learn-tabs button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; background: color-mix(in srgb, var(--paper) 65%, transparent); color: var(--ink-2); font: inherit; font-weight: 800; font-size: 0.92rem; padding: 8px 14px; border-radius: 99px; cursor: pointer; }
 .learn-tabs button.on { background: var(--paper); color: var(--biro); border-color: color-mix(in srgb, var(--biro) 30%, transparent); box-shadow: 0 6px 16px -10px rgba(90, 72, 245, 0.6); }
 .learn-box { display: flex; gap: 8px; background: var(--paper); border-radius: 18px; padding: 8px; box-shadow: 0 12px 30px -18px rgba(23, 23, 47, 0.45); }
 .learn-box input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 1.05rem; padding: 8px 10px; color: var(--ink); }
 .learn-ideas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.learn-ideas .chip { background: rgba(255, 255, 255, 0.7); }
+.learn-ideas .chip { background: color-mix(in srgb, var(--paper) 75%, transparent); color: var(--ink-2); }
 .learn-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .learn-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; background: var(--paper); border-radius: 18px; padding: 16px; text-decoration: none; color: var(--ink); box-shadow: 0 10px 26px -18px rgba(23, 23, 47, 0.45); border: 1px solid var(--line); }
 a.learn-card:hover { border-color: color-mix(in srgb, var(--biro) 45%, transparent); }
