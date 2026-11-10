@@ -1,6 +1,7 @@
 // AI providers behind one small interface. Only the one chosen in the environment is used.
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { ai, voice } from '../config';
+import { accentById, type Accent } from '../../shared/tutors';
 
 export interface AiRequest {
   /** Instructions plus long, reusable context (lesson notes) — cached by Claude, implicitly by Gemini. */
@@ -179,6 +180,9 @@ async function mock(req: AiRequest): Promise<AiResult> {
       year: Number((last.match(/\b(20\d\d)\b/) || [])[1]) || null,
       evidence: { university: 'read by the test AI' },
     });
+  } else if (req.system.includes('TASK:MARK_OPEN')) {
+    const good = /zero|0|one of/i.test(last);
+    text = JSON.stringify({ verdict: good ? 'right' : 'partly', say: good ? "Yes! Exactly — if two things multiply to zero, one of them has to be zero. Lovely explanation." : "You're on the way. The key bit is: if two numbers multiply to zero, one of them must be zero.", board: good ? [] : [{ t: 'box', label: 'Zero product rule', text: 'If $ab = 0$ then $a = 0$ or $b = 0$' }] });
   } else if (req.system.includes('TASK:TEACH_ASK')) {
     text = JSON.stringify({
       steps: [
@@ -191,11 +195,13 @@ async function mock(req: AiRequest): Promise<AiResult> {
     text = JSON.stringify({
       title: lessonTitle,
       steps: [
-        { say: `Welcome! Today we are learning ${lessonTitle}. Let us start with the big idea.`, board: [{ t: 'heading', text: lessonTitle }, { t: 'write', id: 'w1', text: 'The big idea, in one line', tone: 'key' }] },
-        { say: 'Here is the key equation. Notice the two parts on each side.', board: [{ t: 'math', id: 'm1', tex: 'x^2 + 5x + 6 = 0' }, { t: 'write', id: 'w2', text: 'Factorise: $(x+2)(x+3) = 0$' }, { t: 'circle', target: 'm1' }] },
-        { say: 'Now let us see the process as a flow, and how the steps connect.', board: [{ t: 'flow', items: ['Read the question', 'Choose a method', 'Solve', 'Check'] }, { t: 'arrow', from: 'w1', to: 'w2', label: 'leads to' }] },
-        { say: 'Quick check before we go on.', board: [{ t: 'write', text: 'Your turn!', tone: 'key' }], check: { q: 'What do we do first?', options: ['Factorise', 'Guess', 'Draw a cat'], answer: 0, explain: 'We factorise to split it into two brackets.' } },
-        { say: 'Some things repeat as a cycle, and a table helps us compare.', board: [{ t: 'heading', text: 'Methods' }, { t: 'cycle', items: ['Plan', 'Do', 'Check', 'Improve'] }, { t: 'table', head: ['Method', 'When to use'], rows: [['Factorise', 'Small whole numbers'], ['Formula', 'Always works']] }] },
+        { say: `Hello! Today we're learning ${lessonTitle}. Here's a puzzle to start: what two numbers add to five and multiply to six?`, gesture: 'wave', board: [{ t: 'heading', text: lessonTitle }, { t: 'write', id: 'w1', text: 'The big idea, in one line', tone: 'key' }] },
+        { say: "Right, here's the key equation. Notice the two parts on each side — that's the clever bit.", gesture: 'point', board: [{ t: 'math', id: 'm1', tex: 'x^2 + 5x + 6 = 0' }, { t: 'write', id: 'w2', text: 'Factorise: $(x+2)(x+3) = 0$' }, { t: 'circle', target: 'm1' }] },
+        { say: "Let's try a real one together, step by step. Watch what happens to each bracket.", gesture: 'explain', board: [{ t: 'example', id: 'e1', title: 'Solve x² + 7x + 10 = 0', lines: ['Two numbers: add to 7, multiply to 10 → 2 and 5', '$(x+2)(x+5) = 0$', 'So $x = -2$ or $x = -5$'] }] },
+        { say: 'Before I tell you — why do you think a product of two brackets being zero gives us the answers?', gesture: 'think', board: [{ t: 'write', text: 'Your turn to explain!', tone: 'key' }], check: { kind: 'open', q: 'Why does (x+2)(x+3) = 0 mean x = −2 or x = −3?', model: 'If two numbers multiply to zero, at least one of them must be zero, so x + 2 = 0 or x + 3 = 0.', explain: 'Zero product rule: if ab = 0 then a = 0 or b = 0.' } },
+        { say: 'Now here is the process as a flow. Watch out — the most common mistake is forgetting to check.', gesture: 'emphasis', board: [{ t: 'flow', items: ['Read the question', 'Choose a method', 'Solve', 'Check'] }, { t: 'arrow', from: 'w1', to: 'w2', label: 'leads to' }] },
+        { say: 'Quick check before we go on.', gesture: 'think', board: [{ t: 'write', text: 'Your turn!', tone: 'key' }], check: { q: 'What do we do first?', options: ['Factorise', 'Guess', 'Draw a cat'], answer: 0, explain: 'We factorise to split it into two brackets.' } },
+        { say: 'Right — new section: methods. Some things repeat as a cycle, and a table helps us compare.', gesture: 'count', board: [{ t: 'heading', text: 'Methods' }, { t: 'cycle', items: ['Plan', 'Do', 'Check', 'Improve'] }, { t: 'table', head: ['Method', 'When to use'], rows: [['Factorise', 'Small whole numbers'], ['Formula', 'Always works']] }] },
         { say: 'Here is a force diagram and some data.', board: [{ t: 'heading', text: 'Diagrams' }, { t: 'sketch', id: 's1', h: 50, caption: 'Forces on a block', shapes: [{ k: 'ground', p: [5, 40, 95] }, { k: 'rect', p: [38, 22, 24, 18], c: 'blue', fill: true }, { k: 'arrow', p: [62, 31, 90, 31], c: 'red', label: 'F' }, { k: 'arrow', p: [38, 31, 12, 31], c: 'orange', label: 'friction' }, { k: 'text', p: [50, 12], text: 'block', c: 'ink' }] }, { t: 'pie', items: [{ label: 'TV', value: 50 }, { label: 'Online', value: 35 }, { label: 'Paper', value: 15 }], caption: 'Survey of 100 people' }, { t: 'bars', items: [{ label: 'Mon', value: 3 }, { label: 'Tue', value: 5 }, { label: 'Wed', value: 2 }], unit: 'h' }] },
         { say: 'A graph shows where the curve crosses zero. Those are our answers.', board: [{ t: 'graph', fn: 'x^2+5x+6', xmin: -5, xmax: 1, label: 'y = x² + 5x + 6' }, { t: 'bullets', items: ['Crosses at x = −2', 'and at x = −3'] }] },
         { say: 'So the answer is x equals minus two or minus three. Well done!', board: [{ t: 'box', label: 'Answer', text: '$x = -2$ or $x = -3$' }, { t: 'underline', target: 'w2' }] },
@@ -311,20 +317,33 @@ export interface Speech {
 }
 
 /** Speak one tutor step. The style lines steer the voice; only the transcript is read out. */
-export async function speak(text: string, voiceName = voice.voiceName, accent: 'east-african' | 'neutral' = 'east-african'): Promise<Speech> {
+export async function speak(text: string, voiceName = voice.voiceName, accent: Accent = 'british'): Promise<Speech> {
   if (!voice.enabled) throw new AiError('The natural voice is not switched on.', 503);
   if (ai.provider === 'mock') {
-    // a quiet tone as long as the words would take to say, so the whole path can be tested
+    // a hum with the rhythm of speech (syllables, word gaps, pauses at commas and full stops), as
+    // long as the words would take to say, so the whole path — lip sync included — can be tested
     const rate = 24000;
-    const n = Math.min(rate * 8, Math.max(rate / 2, Math.round((text.length / 15) * rate)));
-    const pcm = new Int16Array(n);
-    for (let i = 0; i < n; i++) pcm[i] = Math.round(Math.sin((i / rate) * 2 * Math.PI * 220) * 600);
-    return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((n / rate) * 1000), tokensOut: Math.ceil(text.length / 4) };
+    const parts: number[] = [];
+    const seg = (secs: number, amp: number, hz: number) => {
+      const n = Math.round(secs * rate);
+      for (let i = 0; i < n; i++) parts.push(Math.round(Math.sin((parts.length / rate) * 2 * Math.PI * hz) * amp * Math.sin((Math.PI * i) / n)));
+    };
+    seg(0.12, 0, 0);
+    for (const ch of text.slice(0, 600)) {
+      if (/[.!?]/.test(ch)) seg(0.38, 0, 0);
+      else if (/[,;:—-]/.test(ch)) seg(0.2, 0, 0);
+      else if (ch === ' ') seg(0.03, 0, 0);
+      else if (/[aeiou]/i.test(ch)) seg(0.085, 5200, 190);
+      else if (/[a-z0-9]/i.test(ch)) seg(0.05, 1800, 240);
+    }
+    seg(0.15, 0, 0);
+    const pcm = Int16Array.from(parts);
+    return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((pcm.length / rate) * 1000), tokensOut: Math.ceil(text.length / 4) };
   }
-  const accentNote = accent === 'east-african' ? ' A natural East African (Ugandan) English accent.' : ' Neutral international English.';
-  const prompt = `[Audio Profile: A warm, patient university tutor who loves helping students understand.]
-[Scene: A one-to-one lesson at a whiteboard.]
-[Director's Notes: Clear, friendly and encouraging. Unhurried pace, natural pauses, gentle emphasis on key words.${accentNote}]
+  const accentNote = ` Accent: ${accentById(accent).note}`;
+  const prompt = `[Audio Profile: A warm, lively university tutor who genuinely loves helping students understand — a real person, never a narrator or a robot.]
+[Scene: A face-to-face, one-to-one lesson at a whiteboard. The tutor is talking to one student a metre away.]
+[Director's Notes: Conversational and human: natural rhythm, small pauses to think, a smile in the voice, real emphasis on the key words, rising intonation on questions. Unhurried but not slow.${accentNote}]
 ${text}`;
   const data = await postJson(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`,

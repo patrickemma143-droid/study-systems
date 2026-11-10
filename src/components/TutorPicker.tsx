@@ -1,11 +1,13 @@
-// Choose your tutor: a face and a natural voice (with a preview), the accent, the speed and captions.
+// Choose your tutor: a character and a natural voice (with a talking preview), the accent, how it
+// sounds, the speed, captions and hands-free listening.
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Play, Square, X } from 'lucide-react';
-import { ACCENTS, TUTORS, type TutorPrefs } from '../../shared/tutors';
+import { ACCENTS, TUTORS, tutorById, type TutorPrefs } from '../../shared/tutors';
 import { TutorFace } from './TutorFace';
-import { TutorAvatar } from './TutorAvatar';
-import { meterAudio, unlockMeter } from '../lib/tutor/meter';
-import { webglOk } from '../lib/tutor/webgl';
+import { TutorCharacter, type CharacterControl } from './TutorCharacter';
+import { Narrator, type Track } from '../lib/tutor/narrator';
+import { REST, type Mouth } from '../lib/tutor/visemes';
+import { handsFreeSupported } from '../lib/tutor/handsfree';
 import { useToast } from './ui';
 
 const SOUNDS: { id: TutorPrefs['sound']; label: string; hint: string }[] = [
@@ -17,60 +19,65 @@ const SOUNDS: { id: TutorPrefs['sound']; label: string; hint: string }[] = [
 export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorPrefs; natural: boolean; onSave: (p: TutorPrefs) => void | Promise<void>; onClose: () => void }) {
   const toast = useToast();
   const [p, setP] = useState<TutorPrefs>(prefs);
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-  const audio = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const track = useRef<Track | null>(null);
+  const narrator = useRef<Narrator | null>(null);
+  const control = useRef<CharacterControl>({ x: 0, sit: false, act: 'wave', side: 'right', speaking: false, pulse: 0 });
+  const mouth = useRef<(() => Mouth) | null>(() => track.current?.mouth() ?? REST);
+  const t = tutorById(p.tutor);
+
+  const stop = () => {
+    track.current?.stop();
+    track.current = null;
+    narrator.current?.dispose();
+    narrator.current = null;
+    setPlaying(false);
+    control.current.speaking = false;
+    control.current.act = 'idle';
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      audio.current?.pause();
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
 
-  async function preview(id: string) {
-    const t = TUTORS.find((x) => x.id === id)!;
-    unlockMeter();
-    setP((cur) => ({ ...cur, tutor: id }));
-    audio.current?.pause();
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if (playing === id) {
-      setPlaying(null);
-      return;
-    }
-    const text = `Hi, I'm ${t.name}. Let's learn this together. Stop me any time to ask a question.`;
-    if (p.sound !== 'natural' || !natural) {
-      if ('speechSynthesis' in window) {
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = p.rate;
-        u.onend = () => setPlaying(null);
-        window.speechSynthesis.speak(u);
-        setPlaying(id);
-      }
-      return;
-    }
-    setLoadingId(id);
+  // a new tutor waves hello
+  useEffect(() => {
+    control.current.act = 'wave';
+    control.current.pulse++;
+    const id = window.setTimeout(() => (control.current.act = 'idle'), 1600);
+    return () => window.clearTimeout(id);
+  }, [p.tutor]);
+
+  async function preview() {
+    if (playing || loading) return stop();
+    const accent = ACCENTS.find((a) => a.id === p.accent)!;
+    const text = `Hi, I'm ${t.name}. Let's learn this together. Stop me any time — just talk, and I'll listen.`;
+    const n = new Narrator(p.sound === 'natural' && natural ? 'natural' : p.sound === 'silent' ? 'silent' : 'device', (reason) => toast(reason), { name: t.voice, accent: accent.id, gender: t.gender });
+    n.rate = p.rate;
+    narrator.current = n;
+    setLoading(true);
     try {
-      const r = await fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: t.voice, accent: p.accent }) });
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'The voice preview is not available right now.');
-      const url = URL.createObjectURL(await r.blob());
-      const a = new Audio(url);
-      a.playbackRate = p.rate;
-      meterAudio(a);
-      a.onended = () => {
-        setPlaying(null);
-        URL.revokeObjectURL(url);
-      };
-      audio.current = a;
-      await a.play();
-      setPlaying(id);
-    } catch (e: any) {
-      toast(e.message);
+      const tr = await n.track(text);
+      if (narrator.current !== n) return tr.stop();
+      track.current = tr;
+      tr.onEnd(() => {
+        setPlaying(false);
+        control.current.speaking = false;
+        control.current.act = 'idle';
+      });
+      control.current.act = 'explain';
+      control.current.speaking = true;
+      tr.play();
+      setPlaying(true);
     } finally {
-      setLoadingId(null);
+      setLoading(false);
     }
   }
 
@@ -78,62 +85,56 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
     <div className="picker-backdrop" role="dialog" aria-modal="true" aria-label="Choose your tutor" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="picker">
         <div className="picker-head">
-          <div>
-            <h2>Choose your tutor</h2>
-            <p className="small muted">Pick a voice you enjoy listening to — tap ▶ to hear it.</p>
-          </div>
+          <h2>Your tutor</h2>
           <button className="btn icon ghost" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </div>
-        {p.avatar && webglOk() && (
-          <div className="picker-hero">
-            <div className="picker-live">
-              <TutorAvatar tutor={p.tutor} speaking={playing === p.tutor} framing="bust" />
-            </div>
-            <div>
-              <strong>{TUTORS.find((t) => t.id === p.tutor)?.name}</strong>
-              <p className="small muted" style={{ margin: '4px 0 0' }}>
-                {TUTORS.find((t) => t.id === p.tutor)?.sounds}. Teaches on the board beside you, looks at you while you answer, and reacts when you get it right.
-              </p>
-            </div>
+
+        <div className="picker-hero">
+          <div className="picker-live">
+            <TutorCharacter tutor={p.tutor} control={control} mouth={mouth} height={176} />
           </div>
-        )}
+          <div className="picker-about">
+            <strong>{t.name}</strong>
+            <p className="small muted">
+              {t.manner[0].toUpperCase() + t.manner.slice(1)}.
+            </p>
+            <button className="btn small" onClick={preview} disabled={loading && !playing}>
+              {loading ? <Loader2 size={15} className="spin" /> : playing ? <Square size={13} /> : <Play size={15} />} {playing ? 'Stop' : `Hear ${t.name}`}
+            </button>
+          </div>
+        </div>
+
         <div className="picker-grid">
-          {TUTORS.map((t) => (
-            <div key={t.id} className={`picker-card ${p.tutor === t.id ? 'on' : ''}`}>
-              <button className="picker-pick" onClick={() => setP({ ...p, tutor: t.id })} aria-pressed={p.tutor === t.id}>
-                <TutorFace tutor={t.id} size={58} speaking={playing === t.id} />
-                <strong>{t.name}</strong>
-                <span className="small muted">{t.sounds}</span>
-                {p.tutor === t.id && (
-                  <span className="picker-check" aria-hidden>
-                    <Check size={14} />
-                  </span>
-                )}
-              </button>
-              <button className="picker-play" onClick={() => preview(t.id)} aria-label={`Hear ${t.name}`} disabled={loadingId !== null && loadingId !== t.id}>
-                {loadingId === t.id ? <Loader2 size={15} className="spin" /> : playing === t.id ? <Square size={13} /> : <Play size={15} />}
-              </button>
-            </div>
+          {TUTORS.map((x) => (
+            <button key={x.id} className={`picker-pick ${p.tutor === x.id ? 'on' : ''}`} onClick={() => (stop(), setP({ ...p, tutor: x.id }))} aria-pressed={p.tutor === x.id}>
+              <TutorFace tutor={x.id} size={54} />
+              <span>{x.name}</span>
+              {p.tutor === x.id && (
+                <span className="picker-check" aria-hidden>
+                  <Check size={13} />
+                </span>
+              )}
+            </button>
           ))}
         </div>
 
         <div className="picker-row">
           <span className="label">Accent</span>
-          <div className="segmented">
+          <div className="segmented wrap">
             {ACCENTS.map((a) => (
-              <button key={a.id} aria-pressed={p.accent === a.id} onClick={() => setP({ ...p, accent: a.id })}>
+              <button key={a.id} aria-pressed={p.accent === a.id} onClick={() => (stop(), setP({ ...p, accent: a.id }))}>
                 {a.label}
               </button>
             ))}
           </div>
         </div>
         <div className="picker-row">
-          <span className="label">Sound</span>
+          <span className="label">Voice</span>
           <div className="segmented wrap">
             {SOUNDS.map((s) => (
-              <button key={s.id} aria-pressed={p.sound === s.id} onClick={() => setP({ ...p, sound: s.id })} title={s.hint} disabled={s.id === 'natural' && !natural}>
+              <button key={s.id} aria-pressed={p.sound === s.id} onClick={() => (stop(), setP({ ...p, sound: s.id }))} title={s.hint} disabled={s.id === 'natural' && !natural}>
                 {s.label}
               </button>
             ))}
@@ -149,11 +150,20 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
             ))}
           </div>
         </div>
-        <label className="row small" style={{ gap: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={p.captions} onChange={(e) => setP({ ...p, captions: e.target.checked })} /> Show captions while the tutor talks
+        <label className="picker-toggle">
+          <input type="checkbox" checked={p.handsFree} onChange={(e) => setP({ ...p, handsFree: e.target.checked })} disabled={!handsFreeSupported} />
+          <span>
+            <strong>Hands-free</strong> — just talk, and {t.name} stops to listen
+            {!handsFreeSupported && <em className="muted"> (not in this browser — use the mic button)</em>}
+          </span>
         </label>
-        <label className="row small" style={{ gap: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={p.avatar} onChange={(e) => setP({ ...p, avatar: e.target.checked })} /> Show the tutor on video (3D) — turn off to save data and battery
+        <label className="picker-toggle">
+          <input type="checkbox" checked={p.captions} onChange={(e) => setP({ ...p, captions: e.target.checked })} />
+          <span>Captions</span>
+        </label>
+        <label className="picker-toggle">
+          <input type="checkbox" checked={p.avatar} onChange={(e) => setP({ ...p, avatar: e.target.checked })} />
+          <span>Show {t.name} on the board</span>
         </label>
         <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn ghost" onClick={onClose}>
@@ -162,6 +172,7 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
           <button
             className="btn primary"
             onClick={async () => {
+              stop();
               await onSave(p);
               onClose();
             }}

@@ -7,6 +7,8 @@ export type BoardItem =
   | { t: 'math'; id?: string; tex: string }
   | { t: 'bullets'; id?: string; items: string[] }
   | { t: 'box'; id?: string; text: string; label?: string }
+  /** a worked example: a short title and its lines (inline maths allowed), written as one card */
+  | { t: 'example'; id?: string; title?: string; lines: string[] }
   | { t: 'flow'; id?: string; items: string[] }
   | { t: 'cycle'; id?: string; items: string[] }
   | { t: 'table'; id?: string; head: string[]; rows: string[][] }
@@ -34,13 +36,24 @@ export type Shape =
   | { k: 'curve'; p: number[]; c?: Ink }
   | { k: 'text'; p: [number, number]; text: string; c?: Ink; size?: number };
 
-/** A question in the middle of the lesson: the tutor waits for the student's answer. */
+/**
+ * A question in the middle of the lesson: the tutor waits for the student's answer.
+ * "choice" questions have options; "open" questions are answered in the student's own words
+ * (spoken or typed) and marked against the model answer.
+ */
 export interface Check {
+  kind?: 'choice' | 'open';
   q: string;
   options: string[];
   answer: number;
   explain: string;
+  /** open questions: what a good answer says */
+  model?: string;
 }
+
+/** How the tutor moves while saying a step (the character on the board acts it out). */
+export type Gesture = 'explain' | 'point' | 'emphasis' | 'think' | 'happy' | 'wave' | 'count';
+export const GESTURES: Gesture[] = ['explain', 'point', 'emphasis', 'think', 'happy', 'wave', 'count'];
 
 export interface TutorStep {
   /** what the tutor says out loud (plain words, no symbols) */
@@ -48,6 +61,8 @@ export interface TutorStep {
   board: BoardItem[];
   /** a quick check of understanding after this step */
   check?: Check;
+  /** how the tutor moves while saying it */
+  gesture?: Gesture;
 }
 
 export interface PracticeItem {
@@ -93,6 +108,10 @@ export function cleanBoardItem(raw: any): BoardItem | null {
     }
     case 'box':
       return str(raw.text, 300) ? { t: 'box', id: id(raw.id), text: str(raw.text, 300), label: str(raw.label, 40) || undefined } : null;
+    case 'example': {
+      const lines = strs(raw.lines, 7, 200);
+      return lines.length ? { t: 'example', id: id(raw.id), title: str(raw.title, 90) || undefined, lines } : null;
+    }
     case 'flow':
     case 'cycle': {
       const items = strs(raw.items, 6, 60);
@@ -169,20 +188,26 @@ function cleanShape(raw: any, h: number): Shape | null {
 
 export function cleanCheck(raw: any): Check | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
+  if (raw.kind === 'open' || raw.open === true) {
+    const q = str(raw.q, 300);
+    const model = str(raw.model || raw.answer, 500);
+    return q && model ? { kind: 'open', q, options: [], answer: -1, explain: str(raw.explain, 400), model } : undefined;
+  }
   const options = strs(raw.options, 4, 140);
   const answer = Number(raw.answer);
   const q = str(raw.q, 300);
   if (!q || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return undefined;
-  return { q, options, answer, explain: str(raw.explain, 400) };
+  return { kind: 'choice', q, options, answer, explain: str(raw.explain, 400) };
 }
 
-export function cleanSteps(raw: unknown, max = 14): TutorStep[] {
+export function cleanSteps(raw: unknown, max = 20): TutorStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((s: any) => {
       const step: TutorStep = { say: str(s?.say, 700), board: (Array.isArray(s?.board) ? s.board : []).map(cleanBoardItem).filter(Boolean).slice(0, 8) as BoardItem[] };
       const check = cleanCheck(s?.check);
       if (check) step.check = check;
+      if (GESTURES.includes(s?.gesture)) step.gesture = s.gesture;
       return step;
     })
     .filter((s) => s.say)
@@ -224,6 +249,8 @@ export function boardText(item: BoardItem): string {
       return item.text;
     case 'math':
       return item.tex;
+    case 'example':
+      return [item.title ? `Example: ${item.title}` : 'Example', ...item.lines].join('\n');
     case 'bullets':
     case 'flow':
     case 'cycle':

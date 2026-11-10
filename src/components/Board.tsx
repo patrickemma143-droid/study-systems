@@ -20,6 +20,11 @@ export interface QuizEl {
   answer: number;
   chosen: number | null;
   explain?: string;
+  /** an open question: answered in the student's own words */
+  open?: boolean;
+  /** what the student said or typed */
+  said?: string;
+  verdict?: 'right' | 'partly' | 'wrong' | 'marking';
 }
 export type BoardEl = BoardItem | QuizEl;
 
@@ -28,6 +33,16 @@ export interface ShownItem {
   item: BoardEl;
   /** seconds for its "being written" animation; 0 = already there */
   draw: number;
+  /** headings: which part of the lesson this is (1, 2, 3…) */
+  part?: number;
+}
+
+/** Where the tutor is writing, in pixels inside the board's view. */
+export interface WriteSpot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 const INK: Record<Ink, string> = { ink: '#1e2240', blue: '#3d5bd9', red: '#d6336c', green: '#0f9361', orange: '#e8890c', purple: '#7b5cff' };
@@ -354,6 +369,25 @@ function Graph({ fn, xmin, xmax, label }: { fn: string; xmin: number; xmax: numb
 
 function Quiz({ el, onAnswer }: { el: QuizEl; onAnswer?: (qid: string, i: number) => void }) {
   const done = el.chosen !== null;
+  if (el.open) {
+    return (
+      <div className={`b-quiz b-open ${el.verdict && el.verdict !== 'marking' ? `done ${el.verdict}` : 'open'}`}>
+        <div className="b-quiz-label">{el.label}</div>
+        <p className="b-quiz-q">
+          <Rich text={el.q} />
+        </p>
+        {el.said ? (
+          <p className="b-said">
+            <span>You said:</span> “{el.said}”{el.verdict === 'marking' && <em> — marking…</em>}
+            {el.verdict === 'right' && <Tick className="b-tick-mark" size={22} />}
+          </p>
+        ) : (
+          <p className="b-said waiting">Say your answer out loud, or type it below.</p>
+        )}
+        {el.verdict && el.verdict !== 'marking' && el.explain && <p className="b-quiz-explain">{el.explain}</p>}
+      </div>
+    );
+  }
   return (
     <div className={`b-quiz ${done ? 'done' : 'open'}`}>
       <div className="b-quiz-label">{el.label}</div>
@@ -378,15 +412,34 @@ function Quiz({ el, onAnswer }: { el: QuizEl; onAnswer?: (qid: string, i: number
   );
 }
 
-function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: string, i: number) => void): ReactNode {
+function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: string, i: number) => void, part?: number): ReactNode {
   switch (item.t) {
     case 'heading':
       return (
-        <h3 className="b-heading" style={{ ['--mk' as any]: MARKERS[section % MARKERS.length] }}>
+        <h3 className={`b-heading ${part ? 'b-part-heading' : ''}`} style={{ ['--mk' as any]: MARKERS[section % MARKERS.length] }}>
+          {part ? <small className="b-part">Part {part}</small> : null}
           <span>
             <Rich text={item.text} />
           </span>
         </h3>
+      );
+    case 'example':
+      return (
+        <div className="b-example">
+          <span className="b-example-label">Example{item.title ? ':' : ''}</span>
+          {item.title && (
+            <strong className="b-example-title">
+              <Rich text={item.title} />
+            </strong>
+          )}
+          <ol>
+            {item.lines.map((l, i) => (
+              <li key={i}>
+                <Rich text={l} />
+              </li>
+            ))}
+          </ol>
+        </div>
       );
     case 'write':
       return (
@@ -473,7 +526,7 @@ function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: s
 }
 
 const isMark = (i: BoardEl) => i.t === 'circle' || i.t === 'underline' || i.t === 'arrow';
-const tall = (i: BoardEl) => i.t === 'bullets' || i.t === 'table' || i.t === 'cycle' || i.t === 'graph' || i.t === 'quiz';
+const tall = (i: BoardEl) => i.t === 'bullets' || i.t === 'table' || i.t === 'cycle' || i.t === 'graph' || i.t === 'quiz' || i.t === 'example';
 /** Diagrams draw themselves stroke by stroke, so they don't need the wipe. */
 const selfDrawn = (i: BoardEl) => i.t === 'sketch' || i.t === 'pie' || i.t === 'bars';
 
@@ -531,6 +584,9 @@ export default function Board({
   ink = [],
   tool = null,
   onInk,
+  onWriteSpot,
+  showPen = true,
+  insetBottom = 0,
 }: {
   items: ShownItem[];
   /** key of the item being written now */
@@ -544,6 +600,12 @@ export default function Board({
   /** the student's pen, when they are writing (otherwise dragging moves the board) */
   tool?: InkTool | null;
   onInk?: (ink: InkStroke[]) => void;
+  /** where the newest writing is on screen (so the tutor can walk over to it) */
+  onWriteSpot?: (spot: WriteSpot | null, view: { w: number; h: number }) => void;
+  /** the floating pencil (off when the tutor character does the writing) */
+  showPen?: boolean;
+  /** px at the bottom of the view kept clear (the tutor stands there on phones) */
+  insetBottom?: number;
 }) {
   const view = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
@@ -583,9 +645,10 @@ export default function Board({
     const s = Math.max(0.5, Math.min(1.12, vw / (COL + 110)));
     // like reading a page: the section from its top, scrolling on once the writing reaches the bottom
     let y = 26 - c.y * s;
-    if ((r.y + r.h) * s + y > vh - 36) y = vh - 36 - (r.y + r.h) * s;
+    const bottom = vh - 36 - insetBottom;
+    if ((r.y + r.h) * s + y > bottom) y = bottom - (r.y + r.h) * s;
     setCam({ s, x: vw / 2 - (c.x + COL / 2) * s, y });
-  }, [focus, overview]);
+  }, [focus, overview, insetBottom]);
 
   // measure marks (circles, underlines, arrows) and the pen position after every change
   useLayoutEffect(() => {
@@ -650,6 +713,19 @@ export default function Board({
       aim();
     }
   }, [follow, overview, aim]);
+
+  // tell the tutor where the writing is on screen (where the camera is heading)
+  const spotFn = useRef(onWriteSpot);
+  spotFn.current = onWriteSpot;
+  useEffect(() => {
+    const v = view.current;
+    const w = world.current;
+    if (!v || !w || !spotFn.current) return;
+    const el = focus ? w.querySelector<HTMLElement>(`[data-key="${CSS.escape(focus)}"]`) : null;
+    if (!el) return spotFn.current(null, { w: v.clientWidth, h: v.clientHeight });
+    const r = offsetIn(el, w);
+    spotFn.current({ x: cam.x + r.x * cam.s, y: cam.y + r.y * cam.s, w: r.w * cam.s, h: r.h * cam.s }, { w: v.clientWidth, h: v.clientHeight });
+  }, [cam, focus, size]);
 
   useEffect(() => {
     const v = view.current;
@@ -830,7 +906,7 @@ export default function Board({
                 const cls = s.draw && !selfDrawn(s.item) ? (tall(s.item) ? 'writing-y' : 'writing') : '';
                 return (
                   <div key={s.key} className={`bi bi-${s.item.t} ${cls}`} style={style} data-bid={id} data-key={s.key}>
-                    {render(s.item, s.draw, si, onAnswer)}
+                    {render(s.item, s.draw, si, onAnswer, s.part)}
                   </div>
                 );
               })}
@@ -859,7 +935,7 @@ export default function Board({
           ))}
           <path ref={livePath} d="" />
         </svg>
-        {pen && (
+        {pen && showPen && (
           <span key={pen.key} className="b-pen" style={{ left: pen.x, top: pen.y, ['--w' as any]: `${pen.w}px`, ['--d' as any]: `${pen.d}s` } as CSSProperties} aria-hidden>
             <Pencil size={26} />
           </span>

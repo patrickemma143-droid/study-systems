@@ -10,11 +10,20 @@ import { db, now, parseJSON } from '../db';
 import { award } from '../points';
 import { aiDay, assertAllowed, cachedJson, limitsFor, record } from '../ai/service';
 import { AiError, speak } from '../ai/providers';
-import { askRequest, lessonRequest, problemRequest } from '../ai/tutor';
-import { boardText, cleanLesson, cleanSteps, type TutorLesson, type TutorMode } from '../../shared/tutor';
+import { askRequest, lessonRequest, openAnswerRequest, problemRequest, type TutorVoice } from '../ai/tutor';
+import { boardText, cleanBoardItem, cleanLesson, cleanSteps, type BoardItem, type TutorLesson, type TutorMode } from '../../shared/tutor';
 import { blocksFromPlainText, buildStudyPack, type CardSeed, type StudyPack } from '../../shared/engine';
 import { fetchTopic } from '../services/wikipedia';
-import { cleanPrefs, GEMINI_VOICES } from '../../shared/tutors';
+import { ACCENT_IDS, cleanPrefs, GEMINI_VOICES, TUTORS } from '../../shared/tutors';
+
+/** The tutor the student chose, and their first name, so answers sound personal. */
+async function whoTeaches(uid: number, tutorId?: string): Promise<TutorVoice | undefined> {
+  const t = TUTORS.find((x) => x.id === tutorId);
+  if (!t) return undefined;
+  const u = await db('users').where({ id: uid }).first('name');
+  const first = typeof u?.name === 'string' ? u.name.trim().split(/\s+/)[0].slice(0, 30) : '';
+  return { tutor: t.name, manner: t.manner, student: first || undefined };
+}
 import { refreshPlan, savePack } from './packs';
 
 export const tutorRouter = Router();
@@ -185,6 +194,7 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
       audio: z.string().max(3_000_000).regex(/^data:audio\/(wav|x-wav|mpeg|mp4|ogg|aac|flac);base64,[A-Za-z0-9+/=]+$/).optional(),
       // what the student wrote on the board, as a picture ("check my working")
       image: z.string().max(2_000_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/).optional(),
+      tutor: z.string().max(24).optional(),
     })
     .refine((x) => (x.question && x.question.length >= 2) || x.audio || x.image, { message: 'Ask your question first.' })
     .parse(req.body);
@@ -200,11 +210,41 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
   const board = items.slice(lastClear + 1).map(boardText).filter(Boolean).join('\n');
   try {
     const q = b.question || '';
-    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${q.toLowerCase()}\n${audio ? hash(audio.data) : ''}\n${image ? hash(image.data) : ''}`, askRequest(lesson.title, sofar, board, q, audio, image), (raw) => {
+    const who = await whoTeaches(uid, b.tutor);
+    const { data } = await cachedJson(uid, 'tutor', `tutor-ask\n${hash(lesson.title + sofar)}\n${q.toLowerCase()}\n${audio ? hash(audio.data) : ''}\n${image ? hash(image.data) : ''}\n${who ? `${who.tutor}\n${who.student || ''}` : ''}`, askRequest(lesson.title, sofar, board, q, audio, image, who), (raw) => {
       const steps = cleanSteps(raw?.steps, 5);
       if (!steps.length) throw new AiError('The tutor could not answer that one. Try asking another way.');
       const heard = typeof raw?.heard === 'string' ? raw.heard.trim().slice(0, 300) : '';
       return { steps, heard };
+    });
+    res.json({ ...data, usage: await limitsFor(uid) });
+  } catch (err) {
+    friendly(err);
+  }
+});
+
+/** An open question answered in the student's own words (spoken or typed): marked like a teacher would. */
+tutorRouter.post('/lessons/:id/open', async (req, res) => {
+  requireAi();
+  const uid = userId(res);
+  const b = z
+    .object({
+      step: z.number().int().min(0).max(100),
+      answer: z.string().trim().min(1, 'Say or type your answer first.').max(1200),
+      tutor: z.string().max(24).optional(),
+    })
+    .parse(req.body);
+  const { lesson } = await lessonRow(uid, Number(req.params.id));
+  const check = lesson.steps[b.step]?.check;
+  if (!check || check.kind !== 'open' || !check.model) throw new HttpError(404, 'That question is not in this lesson.');
+  try {
+    const who = await whoTeaches(uid, b.tutor);
+    const { data } = await cachedJson(uid, 'tutor', `tutor-open\n${hash(lesson.title + check.q)}\n${b.answer.toLowerCase()}\n${who?.tutor || ''}`, openAnswerRequest(lesson.title, check.q, check.model, b.answer, who), (raw) => {
+      const verdict = raw?.verdict === 'right' || raw?.verdict === 'partly' ? raw.verdict : 'wrong';
+      const say = typeof raw?.say === 'string' ? raw.say.replace(/\s+/g, ' ').trim().slice(0, 700) : '';
+      if (!say) throw new AiError('The tutor could not mark that one. Try again.');
+      const board = (Array.isArray(raw?.board) ? raw.board : []).map(cleanBoardItem).filter(Boolean).slice(0, 2) as BoardItem[];
+      return { verdict: verdict as 'right' | 'partly' | 'wrong', say, board };
     });
     res.json({ ...data, usage: await limitsFor(uid) });
   } catch (err) {
@@ -262,11 +302,11 @@ tutorRouter.post('/voice', async (req, res) => {
     .object({
       text: z.string().trim().min(1).max(900),
       voice: z.enum(GEMINI_VOICES as [string, ...string[]]).optional(),
-      accent: z.enum(['east-african', 'neutral']).optional(),
+      accent: z.enum(ACCENT_IDS).optional(),
     })
     .parse(req.body);
   const voiceName = b.voice || voice.voiceName;
-  const accent = b.accent || 'east-african';
+  const accent = b.accent || 'british';
   const key = hash(`${voice.model}\n${voiceName}\n${accent}\n${b.text}`);
   let row = await db('tts_audio').where({ cache_key: key }).first();
   if (!row) {
