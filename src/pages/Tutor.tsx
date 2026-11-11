@@ -57,6 +57,20 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 /** a stable choice from a list (the same words each time, so their voice can be fetched ahead) */
 const pickBy = <T,>(a: T[], key: string) => a[[...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % a.length];
 
+/** The rest of what was being said, from the sentence the tutor had reached (`at` = 0..1 through it). */
+function restFrom(say: string, at: number): string {
+  const parts = say.match(/[^.!?]+[.!?]+["”’)]*\s*|[^.!?]+$/g) || [say];
+  let seen = 0;
+  const total = say.length || 1;
+  for (let i = 0; i < parts.length; i++) {
+    // restart the sentence that was being said when the student cut in
+    if ((seen + parts[i].length) / total > at) return parts.slice(i).join('').trim();
+    seen += parts[i].length;
+  }
+  return '';
+}
+const BACK_LINE = 'Right — back to where we were.';
+
 /** What the tutor says when a question goes up on the board. */
 const checkLine = (check: Check, label: string) => (check.kind === 'open' ? check.q : `${label}. ${check.q}`);
 /** What the tutor says after a multiple-choice answer, right or wrong (known before the student answers). */
@@ -698,14 +712,44 @@ function TutorPlayer({ id }: { id: number }) {
     void ask(question.trim(), undefined, pic);
   }
 
-  /** "I have a question": the tutor reacts, answers on a fresh part of the board, then goes on. */
+  /**
+   * "I have a question" — at any moment. The tutor notes exactly where it was (half-way through a
+   * sentence, or waiting for an answer to a question on the board), reacts straight away, answers on
+   * a fresh part of the board, then says "back to where we were" and carries on from that very point.
+   */
   async function ask(text: string, audio?: string, image?: string) {
-    const step = stepsRef.current[curRef.current];
+    const at = curRef.current;
+    const step = stepsRef.current[at];
     if (!step || (!text.trim() && !audio && !image) || askingRef.current) return;
     if (!ai?.enabled) return toast('Questions need the AI tutor, which is not switched on here yet.');
     askingRef.current = true;
     setAsking(true);
     hf.current?.hold(true);
+
+    // where were we? the rest of the sentence being said, and any question still waiting for an answer
+    const tr = track.current;
+    let resumeSay = '';
+    if (tr && tr.step === at && !tr.t.ended && tr.t.duration > 0) {
+      const done = tr.t.time() / tr.t.duration;
+      if (done < 0.9) resumeSay = done < 0.12 ? step.say : restFrom(step.say, done);
+    }
+    const waitingQ = awaitingRef.current;
+    const pendingCheck = waitingQ && waitingQ === `c${at}` && step.check ? step.check : null;
+    // a question left on the board must be closed properly, or the lesson waits for it forever
+    if (waitingQ) {
+      answerFn.current = null;
+      openFn.current = null;
+      awaitingRef.current = null;
+      setAwaiting(null);
+      if (pendingCheck) {
+        const { [waitingQ]: _gone, ...rest } = quizRef.current;
+        quizRef.current = rest;
+        setQuizzes(rest);
+      }
+    }
+    // the way back is known now, so get its voice ready while the question is answered
+    narrator.current?.prefetchAll([BACK_LINE, resumeSay]);
+
     // stop the lesson where it is and say something while the answer is worked out, as a person would
     const token = ++runToken.current;
     track.current?.t.stop();
@@ -726,9 +770,17 @@ function TutorPlayer({ id }: { id: number }) {
       const q = text.trim() || r.heard || (image ? 'check what I wrote' : 'your question');
       const heading: BoardItem = { t: 'heading', text: `You asked: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` };
       const extra: PlayStep[] = r.steps.map((s, k) => ({ ...s, board: k === 0 ? [heading, ...s.board.filter((b) => b.t !== 'clear')] : s.board, lessonIndex: step.lessonIndex, asked: true }));
+      // ...then back to the lesson: a fresh column headed "Back to …", the rest of what was being
+      // said, and the question that was waiting (asked again)
+      if (resumeSay || pendingCheck) {
+        const sec = sectionOf(at).title;
+        extra.push({ say: BACK_LINE, board: [{ t: 'heading', text: `Back to: ${sec.length > 50 ? `${sec.slice(0, 47)}…` : sec}` }], lessonIndex: step.lessonIndex, asked: true, gesture: 'point', ...(!resumeSay && pendingCheck ? { check: pendingCheck } : {}) });
+        if (resumeSay) extra.push({ say: resumeSay, board: [], lessonIndex: step.lessonIndex, asked: true, ...(pendingCheck ? { check: pendingCheck } : {}) });
+      }
+      // the answer's lines are new: get their voices now so there is no wait between them
+      narrator.current?.prefetchAll(extra.map((s) => s.say));
       // finish writing this step, then teach the answer straight after it
       setRevealed(step.board.length);
-      const at = curRef.current;
       const all = [...stepsRef.current.slice(0, at + 1), ...extra, ...stepsRef.current.slice(at + 1)];
       stepsRef.current = all;
       setSteps(all);
@@ -737,7 +789,8 @@ function TutorPlayer({ id }: { id: number }) {
       if (token === runToken.current) void runFrom(at + 1);
     } catch (err: any) {
       toast(err.message);
-      if (token === runToken.current) void runFrom(curRef.current);
+      // the answer didn't come: carry on from exactly where we were (the question again, if one was waiting)
+      if (token === runToken.current) void runFrom(at);
     } finally {
       askingRef.current = false;
       setAsking(false);

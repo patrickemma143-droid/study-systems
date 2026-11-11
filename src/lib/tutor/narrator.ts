@@ -280,7 +280,7 @@ export class Narrator {
       if (i >= 0) this.waiting.splice(i, 1)[0].go();
       return;
     }
-    const get = () => fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }) });
+    const get = () => fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }), signal: AbortSignal.timeout(20_000) });
     const giveUp = (msg: string) => {
       // switching voice changes how the tutor sounds, so it happens once and then stays
       if (!this.failed) {
@@ -323,7 +323,9 @@ export class Narrator {
     const lip = new LipSync(text);
     if (this.mode === 'natural' && !this.failed) {
       this.prefetch(text, true);
-      const got = await this.cache.get(text);
+      // never leave the lesson hanging on a slow voice: after a few seconds this one line is said
+      // with the phone's voice (or as a caption) and the lesson goes on
+      const got = await Promise.race([this.cache.get(text)!, new Promise<null>((r) => window.setTimeout(() => r(null), 8000))]);
       if (got) {
         const audio = new Audio(got.url);
         audio.playbackRate = this.rate;
@@ -340,7 +342,7 @@ export class Narrator {
         return new AudioTrack(audio, media / this.rate, this.rate, lip);
       }
     }
-    const aloud = this.mode !== 'silent' && (this.mode === 'device' || this.failed) && 'speechSynthesis' in window;
+    const aloud = this.mode !== 'silent' && 'speechSynthesis' in window;
     const lang = accentById(this.voice?.accent).lang;
     if (aloud) this.pickDeviceVoice();
     return new ClockTrack(text, aloud, this.rate, lip, aloud ? this.deviceChoice : null, lang);
