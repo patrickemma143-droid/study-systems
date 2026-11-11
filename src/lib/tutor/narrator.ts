@@ -228,34 +228,50 @@ export class Narrator {
     private voice?: { name: string; accent: string; gender?: 'f' | 'm' },
   ) {
     if (mode === 'device' && !('speechSynthesis' in window)) this.mode = 'silent';
-    // voices load late on some browsers
-    if ('speechSynthesis' in window) window.speechSynthesis.getVoices();
+    // voices load late on some browsers: pick the phone's voice once they are there, and keep it
+    if ('speechSynthesis' in window) {
+      this.pickDeviceVoice();
+      window.speechSynthesis.addEventListener?.('voiceschanged', this.pickDeviceVoice);
+    }
   }
+
+  /** The phone's voice for this tutor and accent — chosen once, so every line is the same voice. */
+  private deviceChoice: SpeechSynthesisVoice | null = null;
+  private pickDeviceVoice = () => {
+    if (this.deviceChoice) return;
+    this.deviceChoice = deviceVoice(accentById(this.voice?.accent).lang, this.voice?.gender);
+  };
 
   /** Fetch something's natural voice in the background (the next step, while this one plays). */
   prefetch(text: string) {
     if (this.mode !== 'natural' || this.failed || this.cache.has(text)) return;
-    const p = fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }) })
-      .then(async (r) => {
-        if (!r.ok) {
-          const msg = (await r.json().catch(() => null))?.error || 'The natural voice is not available right now.';
-          if (!this.failed) {
-            this.failed = true;
-            this.onFallback(msg);
+    const get = () => fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }) });
+    const giveUp = (msg: string) => {
+      // switching voice changes how the tutor sounds, so it happens once and then stays
+      if (!this.failed) {
+        this.failed = true;
+        this.onFallback(msg);
+      }
+      return null;
+    };
+    const p = (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await get();
+          if (r.ok) {
+            const ms = Number(r.headers.get('X-Duration-Ms')) || 0;
+            const blob = await r.blob();
+            return { url: URL.createObjectURL(blob), duration: ms / 1000, blob };
           }
-          return null;
+          // the day's allowance or a switched-off voice won't change by trying again
+          if (r.status === 429 || r.status === 403 || attempt === 1) return giveUp((await r.json().catch(() => null))?.error || 'The natural voice is not available right now.');
+        } catch {
+          if (attempt === 1) return giveUp('No connection for the natural voice.');
         }
-        const ms = Number(r.headers.get('X-Duration-Ms')) || 0;
-        const blob = await r.blob();
-        return { url: URL.createObjectURL(blob), duration: ms / 1000, blob };
-      })
-      .catch(() => {
-        if (!this.failed) {
-          this.failed = true;
-          this.onFallback('No connection for the natural voice.');
-        }
-        return null;
-      });
+        await new Promise((res) => window.setTimeout(res, 900));
+      }
+      return null;
+    })();
     this.cache.set(text, p);
     this.envs.set(text, p.then((x) => (x ? measure(x.blob) : null)));
   }
@@ -283,10 +299,12 @@ export class Narrator {
     }
     const aloud = this.mode !== 'silent' && (this.mode === 'device' || this.failed) && 'speechSynthesis' in window;
     const lang = accentById(this.voice?.accent).lang;
-    return new ClockTrack(text, aloud, this.rate, lip, aloud ? deviceVoice(lang, this.voice?.gender) : null, lang);
+    if (aloud) this.pickDeviceVoice();
+    return new ClockTrack(text, aloud, this.rate, lip, aloud ? this.deviceChoice : null, lang);
   }
 
   dispose() {
+    if ('speechSynthesis' in window) window.speechSynthesis.removeEventListener?.('voiceschanged', this.pickDeviceVoice);
     for (const p of this.cache.values()) void p.then((x) => x && URL.revokeObjectURL(x.url));
     this.cache.clear();
     this.envs.clear();

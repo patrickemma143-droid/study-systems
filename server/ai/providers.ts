@@ -1,4 +1,5 @@
 // AI providers behind one small interface. Only the one chosen in the environment is used.
+import crypto from 'node:crypto';
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { ai, voice } from '../config';
 import { accentById, type Accent } from '../../shared/tutors';
@@ -317,7 +318,7 @@ export interface Speech {
 }
 
 /** Speak one tutor step. The style lines steer the voice; only the transcript is read out. */
-export async function speak(text: string, voiceName = voice.voiceName, accent: Accent = 'british'): Promise<Speech> {
+export async function speak(text: string, voiceName = voice.voiceName, accent: Accent = 'british', tone?: string): Promise<Speech> {
   if (!voice.enabled) throw new AiError('The natural voice is not switched on.', 503);
   if (ai.provider === 'mock') {
     // a hum with the rhythm of speech (syllables, word gaps, pauses at commas and full stops), as
@@ -340,24 +341,62 @@ export async function speak(text: string, voiceName = voice.voiceName, accent: A
     const pcm = Int16Array.from(parts);
     return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((pcm.length / rate) * 1000), tokensOut: Math.ceil(text.length / 4) };
   }
-  const accentNote = ` Accent: ${accentById(accent).note}`;
-  const prompt = `[Audio Profile: A warm, lively university tutor who genuinely loves helping students understand — a real person, never a narrator or a robot.]
-[Scene: A face-to-face, one-to-one lesson at a whiteboard. The tutor is talking to one student a metre away.]
-[Director's Notes: Conversational and human: natural rhythm, small pauses to think, a smile in the voice, real emphasis on the key words, rising intonation on questions. Unhurried but not slow.${accentNote}]
+  // Every line of a lesson is spoken separately, so the style must be exactly the same each time:
+  // one fixed description of the voice, no acting directions, and as little randomness as possible
+  // (a low temperature and the same seed for this voice and accent).
+  const steady = tone || 'a warm, clear, medium-pitched voice; calm, even energy; steady pace';
+  const prompt = `[Voice: ${steady}. ${accentById(accent).note}]
+[Delivery: a friendly tutor talking to one student. Use exactly this same voice, pitch, pace, volume and accent for every line — consistent from line to line, like one continuous recording. Natural and warm, but do not act, change character, whisper, shout or put on voices. Questions may rise gently at the end.]
 ${text}`;
-  const data = await postJson(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`,
-    { 'x-goog-api-key': voice.key },
-    {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } },
-    },
-  );
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`;
+  const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName } } };
+  const seed = parseInt(crypto.createHash('sha256').update(`${voiceName}\n${accent}`).digest('hex').slice(0, 7), 16);
+  let data: any;
+  try {
+    data = await postJson(url, { 'x-goog-api-key': voice.key }, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig, temperature: 0.3, seed } });
+  } catch (err) {
+    // a model that doesn't take these settings: ask again without them
+    if (!(err instanceof AiError) || err.status !== 502) throw err;
+    data = await postJson(url, { 'x-goog-api-key': voice.key }, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig } });
+  }
   const part = (data?.candidates?.[0]?.content?.parts || []).find((p: any) => p.inlineData?.data);
   if (!part) throw new AiError('The voice service returned no audio.', 503);
   const rate = Number(String(part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1]) || 24000;
   const raw = Buffer.from(part.inlineData.data, 'base64');
   // copy into its own buffer: a typed array view needs 2-byte alignment
-  const pcm = new Int16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length - (raw.length % 2)));
+  const pcm = levelSpeech(new Int16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length - (raw.length % 2))), rate);
   return { mp3: pcmToMp3(pcm, rate), durationMs: Math.round((pcm.length / rate) * 1000), tokensOut: Number(data?.usageMetadata?.candidatesTokenCount || 0) };
+}
+
+/**
+ * Make every clip sound like part of one recording: trim the silence at the start and end to the
+ * same short pause, and bring the speech to the same loudness (without clipping the peaks).
+ */
+export function levelSpeech(pcm: Int16Array, rate: number): Int16Array {
+  const frame = Math.round(rate * 0.02);
+  const rms: number[] = [];
+  for (let i = 0; i < pcm.length; i += frame) {
+    let s = 0;
+    const end = Math.min(pcm.length, i + frame);
+    for (let j = i; j < end; j++) s += pcm[j] * pcm[j];
+    rms.push(Math.sqrt(s / Math.max(1, end - i)));
+  }
+  const peakRms = Math.max(1, ...rms);
+  const voiced = (r: number) => r > Math.max(250, peakRms * 0.06);
+  const first = rms.findIndex(voiced);
+  if (first < 0) return pcm;
+  let last = rms.length - 1;
+  while (last > first && !voiced(rms[last])) last--;
+  const pad = Math.round(rate * 0.12);
+  const a = Math.max(0, first * frame - pad);
+  const b = Math.min(pcm.length, (last + 1) * frame + pad);
+  // loudness of the speech itself (ignoring pauses), aimed at about -20 dBFS
+  const speech = rms.filter(voiced);
+  const level = Math.sqrt(speech.reduce((t, r) => t + r * r, 0) / speech.length);
+  let peak = 1;
+  for (let i = a; i < b; i++) peak = Math.max(peak, Math.abs(pcm[i]));
+  const gain = Math.min(3276 / level, 30000 / peak, 4);
+  const out = new Int16Array(b - a);
+  for (let i = a; i < b; i++) out[i - a] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * gain)));
+  return out;
 }

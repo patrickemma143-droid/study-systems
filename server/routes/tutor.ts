@@ -307,13 +307,16 @@ tutorRouter.post('/voice', async (req, res) => {
     .parse(req.body);
   const voiceName = b.voice || voice.voiceName;
   const accent = b.accent || 'british';
-  const key = hash(`${voice.model}\n${voiceName}\n${accent}\n${b.text}`);
+  // the same tutor always sounds the same: one fixed tone per voice. "steady-2" keeps clips made
+  // with the older, looser style directions out, so they are never mixed with the new ones.
+  const tone = TUTORS.find((t) => t.voice === voiceName)?.tone;
+  const key = hash(`steady-2\n${voice.model}\n${voiceName}\n${accent}\n${tone || ''}\n${b.text}`);
   let row = await db('tts_audio').where({ cache_key: key }).first();
   if (!row) {
     await assertAllowed(uid, 'voice');
     let speech;
     try {
-      speech = await speak(b.text, voiceName, accent);
+      speech = await speak(b.text, voiceName, accent, tone);
     } catch (err) {
       friendly(err);
     }
