@@ -384,7 +384,14 @@ function Quiz({ el, onAnswer, onGuess }: { el: QuizEl; onAnswer?: (qid: string, 
             {el.verdict === 'right' && <Tick className="b-tick-mark" size={22} />}
           </p>
         ) : (
-          <p className="b-said waiting">Say your answer out loud, or type it below.</p>
+          <>
+            <p className="b-said waiting">Say your answer out loud, or type it below.</p>
+            {onAnswer && (
+              <button type="button" className="b-dontknow" onClick={() => onAnswer(el.qid, -1)}>
+                I don’t know
+              </button>
+            )}
+          </>
         )}
         {el.verdict && el.verdict !== 'marking' && el.explain && <p className="b-quiz-explain">{el.explain}</p>}
       </div>
@@ -409,12 +416,22 @@ function Quiz({ el, onAnswer, onGuess }: { el: QuizEl; onAnswer?: (qid: string, 
           );
         })}
       </div>
-      {!done && onGuess && (
-        <button type="button" className={`b-guess ${el.guess ? 'on' : ''}`} aria-pressed={!!el.guess} onClick={() => onGuess(el.qid)}>
-          {el.guess ? '✓ I’m guessing' : 'Not sure? Tap “I’m guessing” first'}
-        </button>
+      {!done && (
+        <div className="b-quiz-extra">
+          {onGuess && (
+            <button type="button" className={`b-guess ${el.guess ? 'on' : ''}`} aria-pressed={!!el.guess} onClick={() => onGuess(el.qid)}>
+              {el.guess ? '✓ I’m guessing' : 'I’m guessing'}
+            </button>
+          )}
+          {onAnswer && (
+            <button type="button" className="b-dontknow" onClick={() => onAnswer(el.qid, -1)}>
+              I don’t know
+            </button>
+          )}
+        </div>
       )}
-      {done && el.guess && <p className="b-guess-note">{el.chosen === el.answer ? 'A lucky guess — this one will come back for a check-in.' : 'Good that you said you were guessing.'}</p>}
+      {done && el.chosen === -1 && <p className="b-guess-note">That’s fine — saying so is how you learn it.</p>}
+      {done && el.guess && el.chosen !== -1 && <p className="b-guess-note">{el.chosen === el.answer ? 'A lucky guess — this one will come back for a check-in.' : 'Good that you said you were guessing.'}</p>}
       {done && el.explain && <p className="b-quiz-explain">{el.explain}</p>}
     </div>
   );

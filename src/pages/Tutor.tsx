@@ -19,7 +19,7 @@ import { listenOnce, matchOption, recognitionSupported, recordWav, recordingSupp
 import { handsFreeSupported, startHandsFree, type HandsFree } from '../lib/tutor/handsfree';
 import { useTutorPrefs } from '../lib/tutor/prefs';
 import { useStudyTimer } from '../lib/usePack';
-import type { BoardItem, Check, Gesture, TutorLesson, TutorStep } from '../../shared/tutor';
+import { DONT_KNOW, neutralAfterChecks, type BoardItem, type Check, type Gesture, type TutorLesson, type TutorStep } from '../../shared/tutor';
 import { ACCENTS, accentById, DEFAULT_PREFS, tutorById, type TutorPrefs } from '../../shared/tutors';
 
 interface LessonReply {
@@ -306,7 +306,8 @@ function TutorPlayer({ id }: { id: number }) {
         setInk(r.ink || []);
         inkSaved.current = JSON.stringify(r.ink || []);
         checkedUpTo.current = (r.ink || []).length;
-        const s = r.lesson.steps.map((x, i) => ({ ...x, lessonIndex: i }));
+        // a pre-written "Spot on!" after a question would contradict the student's real answer
+        const s = neutralAfterChecks(r.lesson.steps).map((x, i) => ({ ...x, lessonIndex: i }));
         stepsRef.current = s;
         setSteps(s);
         setCaption('');
@@ -526,6 +527,13 @@ function TutorPlayer({ id }: { id: number }) {
       if (token !== runToken.current) return false;
       setPhase('playing');
 
+      if (open && DONT_KNOW.test(String(got).trim())) {
+        setQuiz({ ...quizRef.current[qid], said: 'I’m not sure', verdict: 'wrong', guess: true });
+        const say = check.predict ? "That's fine — it's only a guess. Let's find out." : `That's completely fine — that's what I'm here for. Here's the idea: ${check.model || check.explain}`;
+        const feedback = narrate(say, token, -1, 0, 'explain');
+        return afterAnswer({ qid, check, stepAt, lessonIndex, missed: true, given: "I don't know", right: check.model || check.explain, feedback });
+      }
+
       if (open) {
         const said = String(got);
         setQuiz({ ...quizRef.current[qid], said, verdict: 'marking' });
@@ -547,6 +555,11 @@ function TutorPlayer({ id }: { id: number }) {
       }
 
       const chosen = Number(got);
+      if (chosen === -1) {
+        setQuiz({ ...quizRef.current[qid], chosen: -1, guess: true });
+        const feedback = narrate(`That's completely fine — that's what I'm here for. The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`, token, -1, 0, 'explain');
+        return afterAnswer({ qid, check, stepAt, lessonIndex, missed: true, given: "I don't know", right: `${check.options[check.answer]}. ${check.explain}`, feedback });
+      }
       setQuiz({ ...quizRef.current[qid], chosen });
       const ok = chosen === check.answer;
       const feedback = narrate(feedbackLine(qid, check, ok, firstName), token, -1, 0, ok ? 'happy' : 'explain');
@@ -768,12 +781,17 @@ function TutorPlayer({ id }: { id: number }) {
   }
 
   function answer(qid: string, i: number) {
-    if (awaitingRef.current === qid && answerFn.current && !openFn.current) answerFn.current(i);
+    if (awaitingRef.current !== qid) return;
+    // -1 = "I don't know" (for a question in your own words too)
+    if (i === -1 && openFn.current) return openFn.current("I don't know");
+    if (answerFn.current && !openFn.current) answerFn.current(i);
   }
 
   /** Something the student said or typed: an answer to the question on the board, or a question. */
   function heardText(t: string) {
     const checking = awaitingRef.current;
+    // "not sure" / "I don't know" is an honest answer, never a right one
+    if (checking && DONT_KNOW.test(t.trim())) return answer(checking, -1);
     if (checking) {
       const q = quizRef.current[checking];
       if (q?.open && openFn.current) return openFn.current(t);

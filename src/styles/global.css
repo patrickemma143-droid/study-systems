@@ -2457,3 +2457,8 @@ a.learn-card:hover { border-color: color-mix(in srgb, var(--biro) 45%, transpare
 .checkin-missed { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .checkin-missed li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .checkin .b-guess { align-self: flex-start; }
+.b-quiz-extra { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.b-quiz-extra .b-guess { margin-top: 0; }
+.b-dontknow { font-family: var(--font); font-size: 0.8rem; font-weight: 700; color: #3d5bd9; background: rgba(61, 91, 217, 0.06); border: 1px solid rgba(61, 91, 217, 0.35); border-radius: 99px; padding: 4px 12px; cursor: pointer; margin-top: 6px; }
+.b-quiz-extra .b-dontknow { margin-top: 0; }
+.b-dontknow:hover { background: rgba(61, 91, 217, 0.12); }

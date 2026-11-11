@@ -239,7 +239,7 @@ export function cleanPractice(raw: unknown): PracticeItem[] {
 }
 
 export function cleanLesson(raw: any, mode: TutorMode, level: TutorLevel = 'university'): TutorLesson {
-  const steps = cleanSteps(raw?.steps);
+  const steps = neutralAfterChecks(cleanSteps(raw?.steps));
   if (steps.length < 2) throw new Error('The lesson came back incomplete.');
   const tq = str(raw?.tryNext?.q, 400);
   return {
@@ -281,3 +281,23 @@ export function boardText(item: BoardItem): string {
       return '';
   }
 }
+
+/** Praise or a verdict at the start of a line ("Spot on!", "Exactly — ", "Not quite."). */
+const VERDICT_START = /^\s*(?:(?:spot on|exactly(?: right)?|correct(?:ly)?|that'?s (?:right|correct|it|exactly it)|you'?re (?:right|correct)|you got it|well done|great(?: job| work| answer)?|good(?: job| answer| thinking| guess| work)?|brilliant|perfect|nailed it|excellent|nice(?: one| work)?|awesome|yes|yep|yeah|not quite|close|almost|nope|no)\b[^.!?\n]{0,60}[.!?]+\s*)+/i;
+
+/**
+ * A lesson is written before the student answers anything, so the AI sometimes starts the step
+ * after a question with "Spot on!" as if it knew the answer. The app gives the real reaction to
+ * the real answer, so that pre-written verdict is removed (the rest of the line is kept).
+ */
+export function neutralAfterChecks<T extends TutorStep>(steps: T[]): T[] {
+  return steps.map((s, i) => {
+    if (i === 0 || !steps[i - 1].check) return s;
+    const say = s.say.replace(VERDICT_START, '').trim();
+    if (say === s.say) return s;
+    return { ...s, say: say ? say[0].toUpperCase() + say.slice(1) : "Let's look at it together." };
+  });
+}
+
+/** "I don't know" said or typed instead of an answer. */
+export const DONT_KNOW = /^(?:um+|uh+|er+|hmm+|well|honestly|sorry)?[\s,]*(?:i\s*(?:really\s*)?(?:do not|don'?t|dunno)\s*know|(?:i'?m\s*)?not\s*(?:really\s*)?sure|no\s*idea|i\s*have\s*no\s*idea|i\s*forgot|i\s*can'?t\s*remember|dunno|skip(?:\s*it)?|pass|no\s*clue|i'?m\s*(?:lost|confused|guessing))\b/i;
