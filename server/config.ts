@@ -110,8 +110,8 @@ export const ai = {
   limits: {
     // teach = whiteboard lessons, homework = snapped problems, voice = spoken steps (natural voice),
     // detect = reading where and when an uploaded paper is from
-    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 60, detect: 30 }),
-    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 1200, detect: 300 }),
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 250, detect: 30 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 2500, detect: 300 }),
   },
 };
 

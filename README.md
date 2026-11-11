@@ -196,7 +196,7 @@ The AI tutor teaches on a full-screen whiteboard while it talks, like a teacher 
 - Lessons are saved per student (`tutor_lessons`, with the place reached), so home shows "continue" cards.
 - The same material is planned only once and shared (`ai_cache`), so the second student opens it instantly at no cost.
 
-**Allowances** (per day, Free / Pro): `teach` 5 / 80 whiteboard lessons, `homework` 3 / 40 problems, `voice` 60 / 1200 newly spoken steps. Questions during a lesson use `tutor`.
+**Allowances** (per day, Free / Pro): `teach` 5 / 80 whiteboard lessons, `homework` 3 / 40 problems, `voice` 250 / 2500 newly spoken lines (lines are fetched a little ahead so the tutor never waits). Questions during a lesson use `tutor`.
 
 **Code:** `server/routes/tutor.ts`, `server/ai/tutor.ts` (prompts), `shared/tutor.ts` (the board format and its checks), `src/pages/Tutor.tsx`, `src/components/Board.tsx`, `src/lib/tutor/narrator.ts` (voice and fallbacks), `src/lib/tutor/listen.ts` (mic), `src/lib/tutor/prefs.ts`, `src/components/TutorCharacter.tsx` (the animated tutor), `src/lib/tutor/visemes.ts` (lip sync), `src/lib/tutor/handsfree.ts` (hands-free listening), `shared/ink.ts` (the student's pen), `src/components/TutorPicker.tsx`, `src/components/TutorFace.tsx`, `shared/tutors.ts` (the tutors and voices), `src/lib/tutor/graph.ts` (a safe maths parser for graphs, no eval) and `src/pages/Homework.tsx`.
 
@@ -265,8 +265,8 @@ Everything above works with no AI. Add one API key and these appear for logged-i
 | `ANTHROPIC_API_KEY` | | Turns AI on with Claude (used if no Gemini key) |
 | `AI_PROVIDER` | auto | `gemini`, `claude`, or `mock` (fake answers, for testing only) |
 | `AI_MODEL` | `gemini-3.5-flash-lite` / `claude-haiku-5-5` | Model name |
-| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2,teach=5,homework=3,voice=60,detect=30` | Daily allowance on Free (build = smart lessons, paper = AI exam papers, teach = whiteboard lessons, homework = snapped problems, voice = newly spoken tutor steps, detect = papers read for where they are from) |
-| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20,teach=80,homework=40,voice=1200,detect=300` | Daily allowance on Pro |
+| `AI_LIMITS_FREE` | `simplify=10,tutor=5,feedback=3,build=30,paper=2,teach=5,homework=3,voice=250,detect=30` | Daily allowance on Free (build = smart lessons, paper = AI exam papers, teach = whiteboard lessons, homework = snapped problems, voice = newly spoken tutor steps, detect = papers read for where they are from) |
+| `AI_LIMITS_PRO` | `simplify=200,tutor=60,feedback=30,build=400,paper=20,teach=80,homework=40,voice=2500,detect=300` | Daily allowance on Pro |
 | `TTS_MODEL` | `gemini-3.1-flash-tts-preview` | The tutor's natural voice (needs a Gemini key, even if the main AI is Claude; `TTS_API_KEY` can hold a separate one) |
 | `TTS_VOICE` | `Sulafat` | Default Gemini prebuilt voice (students can pick their own tutor's voice) |
 | `TTS_ENABLED` | `true` | `false` makes the tutor use the phone's own voice |

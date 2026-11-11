@@ -242,9 +242,44 @@ export class Narrator {
     this.deviceChoice = deviceVoice(accentById(this.voice?.accent).lang, this.voice?.gender);
   };
 
+  // Voices are fetched ahead of time, two at a time; whatever is needed right now jumps the queue.
+  private running = 0;
+  private waiting: { text: string; go: () => void }[] = [];
+  private dead = false;
+  private slot(text: string, urgent: boolean): Promise<void> {
+    if (urgent || this.running < 2) {
+      this.running++;
+      return Promise.resolve();
+    }
+    return new Promise((res) =>
+      this.waiting.push({
+        text,
+        go: () => {
+          this.running++;
+          res();
+        },
+      }),
+    );
+  }
+  private release = () => {
+    this.running = Math.max(0, this.running - 1);
+    this.waiting.shift()?.go();
+  };
+
+  /** Get the voice for several lines in the background, in order (the next few things to say). */
+  prefetchAll(texts: (string | undefined | null)[]) {
+    for (const t of texts) if (t) this.prefetch(t);
+  }
+
   /** Fetch something's natural voice in the background (the next step, while this one plays). */
-  prefetch(text: string) {
-    if (this.mode !== 'natural' || this.failed || this.cache.has(text)) return;
+  prefetch(text: string, urgent = false) {
+    if (this.mode !== 'natural' || this.failed) return;
+    if (this.cache.has(text)) {
+      // already waiting its turn but needed now: start it straight away
+      const i = urgent ? this.waiting.findIndex((w) => w.text === text) : -1;
+      if (i >= 0) this.waiting.splice(i, 1)[0].go();
+      return;
+    }
     const get = () => fetch('/api/tutor/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: this.voice?.name, accent: this.voice?.accent }) });
     const giveUp = (msg: string) => {
       // switching voice changes how the tutor sounds, so it happens once and then stays
@@ -254,7 +289,7 @@ export class Narrator {
       }
       return null;
     };
-    const p = (async () => {
+    const fetchIt = async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const r = await get();
@@ -271,6 +306,14 @@ export class Narrator {
         await new Promise((res) => window.setTimeout(res, 900));
       }
       return null;
+    };
+    const p = (async () => {
+      await this.slot(text, urgent);
+      try {
+        return this.dead || this.failed ? null : await fetchIt();
+      } finally {
+        this.release();
+      }
     })();
     this.cache.set(text, p);
     this.envs.set(text, p.then((x) => (x ? measure(x.blob) : null)));
@@ -279,7 +322,7 @@ export class Narrator {
   async track(text: string): Promise<Track> {
     const lip = new LipSync(text);
     if (this.mode === 'natural' && !this.failed) {
-      this.prefetch(text);
+      this.prefetch(text, true);
       const got = await this.cache.get(text);
       if (got) {
         const audio = new Audio(got.url);
@@ -292,7 +335,7 @@ export class Narrator {
             audio.onerror = () => res(estimate(text, 1));
           }));
         // the measuring is quick (a few ms), but never hold the lesson up for it
-        const env = await Promise.race([this.envs.get(text) || Promise.resolve(null), new Promise<null>((r) => window.setTimeout(() => r(null), 600))]);
+        const env = await Promise.race([this.envs.get(text) || Promise.resolve(null), new Promise<null>((r) => window.setTimeout(() => r(null), 250))]);
         lip.align(media, env);
         return new AudioTrack(audio, media / this.rate, this.rate, lip);
       }
@@ -304,6 +347,8 @@ export class Narrator {
   }
 
   dispose() {
+    this.dead = true;
+    for (const w of this.waiting.splice(0)) w.go();
     if ('speechSynthesis' in window) window.speechSynthesis.removeEventListener?.('voiceschanged', this.pickDeviceVoice);
     for (const p of this.cache.values()) void p.then((x) => x && URL.revokeObjectURL(x.url));
     this.cache.clear();

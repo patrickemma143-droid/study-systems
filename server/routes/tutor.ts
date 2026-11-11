@@ -9,7 +9,7 @@ import { HttpError, requireAuth, userId } from '../auth';
 import { db, now, parseJSON } from '../db';
 import { award } from '../points';
 import { aiDay, assertAllowed, cachedJson, limitsFor, record } from '../ai/service';
-import { AiError, speak } from '../ai/providers';
+import { AiError, speak, speakable } from '../ai/providers';
 import { askRequest, lessonRequest, openAnswerRequest, problemRequest, type TutorVoice } from '../ai/tutor';
 import { boardText, cleanBoardItem, cleanLesson, cleanSteps, type BoardItem, type TutorLesson, type TutorMode } from '../../shared/tutor';
 import { blocksFromPlainText, buildStudyPack, type CardSeed, type StudyPack } from '../../shared/engine';
@@ -307,10 +307,10 @@ tutorRouter.post('/voice', async (req, res) => {
     .parse(req.body);
   const voiceName = b.voice || voice.voiceName;
   const accent = b.accent || 'british';
-  // the same tutor always sounds the same: one fixed tone per voice. "steady-2" keeps clips made
-  // with the older, looser style directions out, so they are never mixed with the new ones.
+  // the same tutor always sounds the same: one fixed tone per voice. "steady-3" keeps clips made
+  // with older style directions out, so they are never mixed with the new ones.
   const tone = TUTORS.find((t) => t.voice === voiceName)?.tone;
-  const key = hash(`steady-2\n${voice.model}\n${voiceName}\n${accent}\n${tone || ''}\n${b.text}`);
+  const key = hash(`steady-3\n${voice.model}\n${voiceName}\n${accent}\n${tone || ''}\n${speakable(b.text)}`);
   let row = await db('tts_audio').where({ cache_key: key }).first();
   if (!row) {
     await assertAllowed(uid, 'voice');

@@ -41,6 +41,16 @@ const PRAISE = ['Exactly right!', 'Yes — well done!', 'Spot on!', 'That’s it
 const NOT_QUITE = ['Ooh, not quite.', 'Close, but not this time.', 'Hmm, not quite — no worries.', 'Good try, but no.'];
 const THINKING = ['Ooh, good question. Let me show you.', 'Hmm, let me think about the best way to explain that.', 'Great question — give me a second.', 'Ah, I see what you mean. Let me draw it.'];
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+/** a stable choice from a list (the same words each time, so their voice can be fetched ahead) */
+const pickBy = <T,>(a: T[], key: string) => a[[...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % a.length];
+
+/** What the tutor says when a question goes up on the board. */
+const checkLine = (check: Check, label: string) => (check.kind === 'open' ? check.q : `${label}. ${check.q}`);
+/** What the tutor says after a multiple-choice answer, right or wrong (known before the student answers). */
+function feedbackLine(qid: string, check: Check, ok: boolean, name: string) {
+  if (ok) return `${pickBy(PRAISE, qid)}${name && pickBy([0, 1, 2], qid + name) === 0 ? `, ${name}` : ''}. ${check.explain}`;
+  return `${pickBy(NOT_QUITE, qid)} The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`;
+}
 const GESTURE_ACT: Record<Gesture, Act> = { explain: 'explain', point: 'point', emphasis: 'emphasis', think: 'think', happy: 'happy', wave: 'wave', count: 'count' };
 
 export default function Tutor() {
@@ -285,12 +295,41 @@ function TutorPlayer({ id }: { id: number }) {
     setQuizzes(quizRef.current);
   };
 
+  /** The voice for what comes after step i: its question, then the next two steps and their questions. */
+  function prefetchFrom(i: number) {
+    const s = stepsRef.current;
+    const lines: (string | undefined)[] = [];
+    if (s[i]?.check) lines.push(checkLine(s[i].check!, 'Quick check'));
+    for (const j of [i + 1, i + 2]) {
+      lines.push(s[j]?.say);
+      if (s[j]?.check) lines.push(checkLine(s[j].check!, 'Quick check'));
+    }
+    narrator.current?.prefetchAll(lines);
+  }
+
+  /** The greeting, the same words every time (so it can be fetched before Start is pressed). */
+  function helloLine(from: number) {
+    if (!data) return '';
+    return from === 0 ? `Hi${firstName ? ` ${firstName}` : ''}! I'm ${persona.name}. Today we're doing ${data.lesson.title}. Stop me any time${prefs.handsFree && handsFreeSupported ? ' — just talk' : ' with the mic'}.` : `Welcome back${firstName ? `, ${firstName}` : ''}! Let's carry on where we stopped.`;
+  }
+  const startAt = () => Math.min(data?.step || 0, Math.max(0, stepsRef.current.length - 1));
+  /** the "good question" line used next — chosen ahead so its voice is ready the moment a question comes */
+  const filler = useRef(pick(THINKING));
+
+  // as soon as the lesson opens, get the greeting and the first steps ready (before Start is pressed)
+  useEffect(() => {
+    const n = narrator.current;
+    if (!n || !data) return;
+    const from = startAt();
+    n.prefetchAll([helloLine(from), stepsRef.current[from]?.say, stepsRef.current[from + 1]?.say, filler.current]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, prefs.sound, prefs.accent, prefs.tutor, prefs.rate]);
+
   /** Say something, writing `items` board items of step `stepIndex` in time with it. Resolves when done. */
   const narrate = useCallback(async (text: string, token: number, stepIndex = -1, items = 0, gesture?: Act) => {
     const n = narrator.current;
     if (!n || token !== runToken.current) return false;
     const me = ++narrId.current;
-    setCaption(text);
     const t = await n.track(text);
     if (token !== runToken.current || me !== narrId.current) {
       t.stop();
@@ -310,8 +349,8 @@ function TutorPlayer({ id }: { id: number }) {
       return o;
     });
     track.current = { step: stepIndex, t, offsets };
-    const next = stepsRef.current[stepIndex + 1];
-    if (next) n.prefetch(next.say);
+    // while this plays, get the next lines ready so there is never a wait between them
+    if (stepIndex >= 0) prefetchFrom(stepIndex);
     // writing first, then turning to the student to explain (unless the step has its own move)
     const big = gesture && gesture !== 'explain' && gesture !== 'point';
     return new Promise<boolean>((resolve) => {
@@ -337,11 +376,13 @@ function TutorPlayer({ id }: { id: number }) {
         setSpeaking(false);
         hf.current?.setTutorText('');
         if (stepIndex >= 0) setRevealed(items);
-        window.setTimeout(() => resolve(token === runToken.current), 380);
+        window.setTimeout(() => resolve(token === runToken.current), 160);
       });
       if (!control.current.sit) act(gesture || (items ? 'write' : 'explain'), gesture === 'happy' || gesture === 'emphasis');
       const go = () => {
         t.play();
+        // the caption appears with the voice, not before it
+        setCaption(text);
         setSpeaking(true);
         hf.current?.setTutorText(text);
       };
@@ -365,7 +406,9 @@ function TutorPlayer({ id }: { id: number }) {
         answerFn.current = resolve;
         openFn.current = open ? resolve : null;
       });
-      const first = await Promise.race([answered.then(() => 'answered' as const), narrate(open ? check.q : `${label}. ${check.q}`, token, -1, 0, 'think').then((ok) => (ok ? ('read' as const) : ('stopped' as const)))]);
+      // while the student thinks, get both replies ready (right and wrong), so the tutor answers at once
+      if (!open) narrator.current?.prefetchAll([feedbackLine(qid, check, true, firstName), feedbackLine(qid, check, false, firstName)]);
+      const first = await Promise.race([answered.then(() => 'answered' as const), narrate(checkLine(check, label), token, -1, 0, 'think').then((ok) => (ok ? ('read' as const) : ('stopped' as const)))]);
       if (first === 'stopped' && token !== runToken.current) return false;
       if (first === 'answered') narrId.current++; // stop reading the question
       else {
@@ -405,7 +448,7 @@ function TutorPlayer({ id }: { id: number }) {
       const chosen = Number(got);
       setQuiz({ ...quizRef.current[qid], chosen });
       const ok = chosen === check.answer;
-      const feedback = ok ? `${pick(PRAISE)}${firstName && Math.random() < 0.4 ? `, ${firstName}` : ''}. ${check.explain}` : `${pick(NOT_QUITE)} The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`;
+      const feedback = feedbackLine(qid, check, ok, firstName);
       return narrate(feedback, token, -1, 0, ok ? 'happy' : 'explain');
     },
     [narrate, act, id, persona.id, firstName, prefs.handsFree],
@@ -426,7 +469,7 @@ function TutorPlayer({ id }: { id: number }) {
       // say hello the first time, like a teacher would
       if (!greeted.current && data) {
         greeted.current = true;
-        const hello = from === 0 ? `Hi${firstName ? ` ${firstName}` : ''}! I'm ${persona.name}. Today we're doing ${data.lesson.title}. Stop me any time${prefs.handsFree && handsFreeSupported ? ' — just talk' : ' with the mic'}.` : `Welcome back${firstName ? `, ${firstName}` : ''}! Let's carry on where we stopped.`;
+        const hello = helloLine(from);
         if (!(await narrate(hello, token, -1, 0, 'wave'))) return;
       }
       let part = stepsRef.current.slice(0, Math.max(0, from)).filter((s) => !s.asked && s.board[0]?.t === 'heading').length;
@@ -608,9 +651,13 @@ function TutorPlayer({ id }: { id: number }) {
     control.current.sit = false;
     place();
     setCaption(text ? `You asked: ${text}` : image ? `${persona.name} is reading what you wrote…` : 'Listening to your question…');
-    const filler = narrate(image ? 'Let me have a look at what you wrote.' : pick(THINKING), token, -1, 0, 'think');
+    const said = image ? 'Let me have a look at what you wrote.' : filler.current;
+    // the next "good question" line, ready for next time
+    filler.current = pick(THINKING.filter((x) => x !== said));
+    narrator.current?.prefetch(filler.current);
+    const thinking = narrate(said, token, -1, 0, 'think');
     try {
-      const [r] = await Promise.all([api<{ steps: TutorStep[]; heard?: string; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text.trim() || undefined, audio, image, tutor: persona.id } }), filler]);
+      const [r] = await Promise.all([api<{ steps: TutorStep[]; heard?: string; usage: any }>(`/tutor/lessons/${id}/ask`, { body: { step: step.lessonIndex, question: text.trim() || undefined, audio, image, tutor: persona.id } }), thinking]);
       updateAiUsage(r.usage);
       const q = text.trim() || r.heard || (image ? 'check what I wrote' : 'your question');
       const heading: BoardItem = { t: 'heading', text: `You asked: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` };

@@ -344,16 +344,20 @@ export async function speak(text: string, voiceName = voice.voiceName, accent: A
   // Every line of a lesson is spoken separately, so the style must be exactly the same each time:
   // one fixed description of the voice, no acting directions, and as little randomness as possible
   // (a low temperature and the same seed for this voice and accent).
-  const steady = tone || 'a warm, clear, medium-pitched voice; calm, even energy; steady pace';
-  const prompt = `[Voice: ${steady}. ${accentById(accent).note}]
-[Delivery: a friendly tutor talking to one student. Use exactly this same voice, pitch, pace, volume and accent for every line — consistent from line to line, like one continuous recording. Natural and warm, but do not act, change character, whisper, shout or put on voices. Questions may rise gently at the end.]
-${text}`;
+  // One fixed style for every line, pitched at the energy of a good teacher in the MIDDLE of a
+  // lesson: engaged and warm, never "show opening" excited and never flat. Exclamation marks pull
+  // the voice up and down, so the spoken text has none (the captions keep them).
+  const who = tone || 'a warm, clear, medium-pitched voice';
+  const spoken = speakable(text);
+  const prompt = `[Voice: ${who}. ${accentById(accent).note}]
+[Delivery: a friendly, engaged tutor explaining to one student face to face, in the middle of a lesson. Warm, interested and lightly animated, with natural intonation and gentle emphasis on key words. Natural conversational pace — brisk and fluent, never slow or drawn out, no long pauses. Keep exactly the same pitch, energy and pace on every line, like one continuous recording: not excited, not flat, not dramatic.]
+${spoken}`;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voice.model)}:generateContent`;
   const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName } } };
   const seed = parseInt(crypto.createHash('sha256').update(`${voiceName}\n${accent}`).digest('hex').slice(0, 7), 16);
   let data: any;
   try {
-    data = await postJson(url, { 'x-goog-api-key': voice.key }, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig, temperature: 0.3, seed } });
+    data = await postJson(url, { 'x-goog-api-key': voice.key }, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig, temperature: 0.5, seed } });
   } catch (err) {
     // a model that doesn't take these settings: ask again without them
     if (!(err instanceof AiError) || err.status !== 502) throw err;
@@ -396,7 +400,42 @@ export function levelSpeech(pcm: Int16Array, rate: number): Int16Array {
   let peak = 1;
   for (let i = a; i < b; i++) peak = Math.max(peak, Math.abs(pcm[i]));
   const gain = Math.min(3276 / level, 30000 / peak, 4);
-  const out = new Int16Array(b - a);
-  for (let i = a; i < b; i++) out[i - a] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * gain)));
+  // long pauses inside the clip drag: any silence over 0.4 s is shortened to 0.3 s
+  const keep: [number, number][] = [];
+  const maxGap = Math.round(0.4 / 0.02);
+  const gapTo = Math.round(0.3 * rate);
+  let cursor = a;
+  let run = -1;
+  for (let f = Math.floor(a / frame); f <= Math.ceil(b / frame); f++) {
+    const silent = f < rms.length && f * frame < b && !voiced(rms[f]);
+    if (silent && run < 0) run = f;
+    else if (!silent && run >= 0) {
+      if (f - run > maxGap) {
+        const s0 = Math.max(cursor, run * frame);
+        const s1 = Math.min(b, f * frame);
+        keep.push([cursor, s0 + gapTo / 2], [s1 - gapTo / 2, s1]);
+        cursor = s1;
+      }
+      run = -1;
+    }
+  }
+  keep.push([cursor, b]);
+  const len = keep.reduce((t, [x, y]) => t + Math.max(0, y - x), 0);
+  const out = new Int16Array(len);
+  let o = 0;
+  for (const [x, y] of keep) for (let i = x; i < y; i++) out[o++] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * gain)));
   return out;
+}
+
+/**
+ * The words as they should be spoken: exclamation marks become full stops (they make the voice jump
+ * up and down between lines) and spacing is tidied. Used for the voice and its cache key.
+ */
+export function speakable(text: string): string {
+  return text
+    .replace(/!+(?=\s|$)/g, '.')
+    .replace(/!+/g, '')
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
