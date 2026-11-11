@@ -25,6 +25,8 @@ export interface QuizEl {
   /** what the student said or typed */
   said?: string;
   verdict?: 'right' | 'partly' | 'wrong' | 'marking';
+  /** the student said they are only guessing (a right guess doesn't count as understood) */
+  guess?: boolean;
 }
 export type BoardEl = BoardItem | QuizEl;
 
@@ -367,7 +369,7 @@ function Graph({ fn, xmin, xmax, label }: { fn: string; xmin: number; xmax: numb
   );
 }
 
-function Quiz({ el, onAnswer }: { el: QuizEl; onAnswer?: (qid: string, i: number) => void }) {
+function Quiz({ el, onAnswer, onGuess }: { el: QuizEl; onAnswer?: (qid: string, i: number) => void; onGuess?: (qid: string) => void }) {
   const done = el.chosen !== null;
   if (el.open) {
     return (
@@ -407,12 +409,18 @@ function Quiz({ el, onAnswer }: { el: QuizEl; onAnswer?: (qid: string, i: number
           );
         })}
       </div>
+      {!done && onGuess && (
+        <button type="button" className={`b-guess ${el.guess ? 'on' : ''}`} aria-pressed={!!el.guess} onClick={() => onGuess(el.qid)}>
+          {el.guess ? '✓ I’m guessing' : 'Not sure? Tap “I’m guessing” first'}
+        </button>
+      )}
+      {done && el.guess && <p className="b-guess-note">{el.chosen === el.answer ? 'A lucky guess — this one will come back for a check-in.' : 'Good that you said you were guessing.'}</p>}
       {done && el.explain && <p className="b-quiz-explain">{el.explain}</p>}
     </div>
   );
 }
 
-function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: string, i: number) => void, part?: number): ReactNode {
+function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: string, i: number) => void, part?: number, onGuess?: (qid: string) => void): ReactNode {
   switch (item.t) {
     case 'heading':
       return (
@@ -519,7 +527,7 @@ function render(item: BoardEl, draw: number, section: number, onAnswer?: (qid: s
     case 'bars':
       return <Bars items={item.items} caption={item.caption} unit={item.unit} draw={draw} />;
     case 'quiz':
-      return <Quiz el={item} onAnswer={onAnswer} />;
+      return <Quiz el={item} onAnswer={onAnswer} onGuess={onGuess} />;
     default:
       return null;
   }
@@ -585,6 +593,7 @@ export default function Board({
   tool = null,
   onInk,
   onWriteSpot,
+  onGuess,
   showPen = true,
   insetBottom = 0,
 }: {
@@ -602,6 +611,8 @@ export default function Board({
   onInk?: (ink: InkStroke[]) => void;
   /** where the newest writing is on screen (so the tutor can walk over to it) */
   onWriteSpot?: (spot: WriteSpot | null, view: { w: number; h: number }) => void;
+  /** the student marks a multiple-choice answer as a guess */
+  onGuess?: (qid: string) => void;
   /** the floating pencil (off when the tutor character does the writing) */
   showPen?: boolean;
   /** px at the bottom of the view kept clear (the tutor stands there on phones) */
@@ -906,7 +917,7 @@ export default function Board({
                 const cls = s.draw && !selfDrawn(s.item) ? (tall(s.item) ? 'writing-y' : 'writing') : '';
                 return (
                   <div key={s.key} className={`bi bi-${s.item.t} ${cls}`} style={style} data-bid={id} data-key={s.key}>
-                    {render(s.item, s.draw, si, onAnswer, s.part)}
+                    {render(s.item, s.draw, si, onAnswer, s.part, onGuess)}
                   </div>
                 );
               })}

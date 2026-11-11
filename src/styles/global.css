@@ -2430,3 +2430,30 @@ a.learn-card:hover { border-color: color-mix(in srgb, var(--biro) 45%, transpare
 .m-review .m-dot { background: var(--bad); }
 .m-title { flex: 1; min-width: 140px; font-weight: 700; }
 .m-status { font-size: 0.82rem; color: var(--ink-3); }
+.b-guess { margin-top: 6px; font-family: var(--font); font-size: 0.8rem; font-weight: 700; color: #6b7090; background: transparent; border: 1px dashed #b9bdd4; border-radius: 99px; padding: 4px 12px; cursor: pointer; }
+.b-guess.on { color: #b06a00; border-style: solid; border-color: #e8a10c; background: rgba(232, 161, 12, 0.1); }
+.b-guess-note { font-size: 1.15rem; color: #b06a00; margin: 4px 0 0; }
+.mastery-cal { margin: 0 0 8px; font-size: 0.88rem; color: #b06a00; }
+.mastery-foot { margin: 8px 0 0; font-size: 0.8rem; color: var(--ink-3); }
+.tutor-startbtn { cursor: default; }
+.tutor-startmain { display: flex; flex-direction: column; align-items: center; gap: 10px; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+.tutor-startmain:hover .tutor-startcircle { transform: scale(1.06); }
+.tutor-quizfirst { margin-top: 6px; font-size: 0.88rem; }
+.checkin { max-width: 640px; margin: 20px auto; display: flex; flex-direction: column; gap: 14px; }
+.checkin h2 { display: flex; gap: 8px; align-items: center; margin: 0; }
+.checkin-top { display: flex; flex-direction: column; gap: 6px; }
+.checkin-bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.checkin-bar span { display: block; height: 100%; background: var(--grad); transition: width 0.4s ease-out; }
+.checkin-concept { margin: 0; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--biro); }
+.checkin-q { font-size: 1.3rem; line-height: 1.35; }
+.checkin-opts { display: flex; flex-direction: column; gap: 8px; }
+.checkin-opt { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.checkin-opt > span { font-weight: 800; color: var(--biro); }
+.checkin-opt:hover:not(:disabled) { border-color: var(--biro); }
+.checkin-opt.right { border-color: var(--good); background: var(--good-soft); }
+.checkin-opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.checkin-opt svg { margin-left: auto; }
+.checkin-model { background: var(--paper-2); border-radius: 12px; padding: 10px 12px; }
+.checkin-missed { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.checkin-missed li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.checkin .b-guess { align-self: flex-start; }

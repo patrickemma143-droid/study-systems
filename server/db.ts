@@ -538,6 +538,37 @@ migrations['012_tutor_prefs'] = {
   async down() {},
 };
 
+migrations['014_mastery'] = {
+  async up(k) {
+    // what each student has understood, idea by idea, across all lessons — and when to check it again
+    if (!(await k.schema.hasTable('concept_mastery'))) {
+      await k.schema.createTable('concept_mastery', (t) => {
+        t.increments('id');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('concept_key', 64).notNullable();
+        t.string('concept', 200).notNullable(); // the idea (a lesson section)
+        t.string('topic', 200).notNullable(); // the lesson it is from
+        t.integer('pack_id').unsigned().nullable();
+        t.integer('lesson_id').unsigned().nullable();
+        t.float('strength').notNullable().defaultTo(0); // 0..1, how securely it is known
+        t.string('status', 12).notNullable(); // got | helped | review
+        t.integer('seen').notNullable().defaultTo(0);
+        t.integer('correct').notNullable().defaultTo(0);
+        t.integer('sure_wrong').notNullable().defaultTo(0); // confident but wrong: a misconception
+        t.integer('guess_right').notNullable().defaultTo(0); // right, but only a guess
+        t.text('check_json'); // a question that checks this idea again
+        t.bigInteger('next_check').notNullable();
+        t.bigInteger('updated_at').notNullable();
+        t.unique(['user_id', 'concept_key']);
+        t.index(['user_id', 'next_check']);
+      });
+    }
+  },
+  async down(k) {
+    await k.schema.dropTableIfExists('concept_mastery');
+  },
+};
+
 migrations['013_origin'] = {
   async up(k) {
     // where and when a pack's material or a past paper is from (university, course, semester, date)

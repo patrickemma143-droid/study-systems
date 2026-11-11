@@ -40,6 +40,7 @@ export default function Dashboard() {
   const [topic, setTopic] = useState('');
   const [examPick, setExamPick] = useState(false);
   const [lessons, setLessons] = useState<TutorSummary[]>([]);
+  const [checkins, setCheckins] = useState(0);
   const tp = useTutorPrefs();
   const [picker, setPicker] = useState(false);
   const persona = tutorById(tp.prefs?.tutor);
@@ -57,6 +58,9 @@ export default function Dashboard() {
       .catch(() => {});
     pendingReviews()
       .then(setReviews)
+      .catch(() => {});
+    api<{ due: unknown[] }>('/mastery/checkins')
+      .then((r) => setCheckins(r.due?.length || 0))
       .catch(() => {});
     api<{ lessons: TutorSummary[] }>('/tutor/lessons')
       .then((r) => setLessons(r.lessons ?? []))
@@ -161,8 +165,18 @@ export default function Dashboard() {
         </div>
       )}
 
-      {(lessons.length > 0 || stats.dueCards > 0 || nextSession) && (
+      {(lessons.length > 0 || stats.dueCards > 0 || nextSession || checkins > 0) && (
         <div className="continue-row">
+          {checkins > 0 && (
+            <Link to="/checkin" className="continue-card due">
+              <Sparkles size={20} />
+              <span>
+                <strong>Check-in: {plural(checkins, 'idea')} from earlier</strong>
+                <span className="small muted">About {Math.max(1, Math.round(checkins * 0.4))} min · keep what you learned</span>
+              </span>
+              <ArrowRight size={18} />
+            </Link>
+          )}
           {stats.dueCards > 0 && (
             <Link to="/review" className="continue-card due">
               <Layers size={20} />

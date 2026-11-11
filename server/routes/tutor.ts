@@ -240,6 +240,8 @@ tutorRouter.post('/lessons/:id/reteach', async (req, res) => {
       answerGiven: z.string().trim().max(1200),
       rightAnswer: z.string().trim().max(800),
       attempt: z.number().int().min(1).max(3).default(1),
+      // they were sure of their wrong answer: a misconception, taught differently from a gap
+      confident: z.boolean().optional(),
       tutor: z.string().max(24).optional(),
     })
     .parse(req.body);
@@ -251,8 +253,8 @@ tutorRouter.post('/lessons/:id/reteach', async (req, res) => {
   const level = levelOf(lesson.level);
   try {
     const who = await whoTeaches(uid, b.tutor);
-    const key = `reteach\n${hash(lesson.title + b.question)}\n${b.answerGiven.toLowerCase()}\n${b.attempt}\n${level}\n${who?.tutor || ''}`;
-    const { data } = await cachedJson(uid, 'reteach', key, reteachRequest({ lessonTitle: lesson.title, level, sofar, board, question: b.question, answerGiven: b.answerGiven, rightAnswer: b.rightAnswer, attempt: b.attempt, who }), (raw) => {
+    const key = `reteach\n${hash(lesson.title + b.question)}\n${b.answerGiven.toLowerCase()}\n${b.attempt}\n${b.confident ? 'sure' : ''}\n${level}\n${who?.tutor || ''}`;
+    const { data } = await cachedJson(uid, 'reteach', key, reteachRequest({ lessonTitle: lesson.title, level, sofar, board, question: b.question, answerGiven: b.answerGiven, rightAnswer: b.rightAnswer, attempt: b.attempt, confident: b.confident, who }), (raw) => {
       const steps = cleanSteps(raw?.steps, 4).map(({ check: _drop, ...s }) => s);
       const check = cleanCheck(raw?.check);
       if (!steps.length || !check) throw new AiError('The tutor could not explain that one again. Carry on, and ask a question if it is still unclear.');

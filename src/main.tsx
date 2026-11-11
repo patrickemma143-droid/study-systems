@@ -53,6 +53,7 @@ const Plan = lazyPage(() => import('./pages/Plan'));
 const Ranks = lazyPage(() => import('./pages/Ranks'));
 const Paper = lazyPage(() => import('./pages/Paper'));
 const TutorPortrait = lazyPage(() => import('./pages/TutorPortrait'));
+const CheckIn = lazyPage(() => import('./pages/CheckIn'));
 
 /** Only same-site paths, never another website. */
 function safeNext(next: string | null): string {
@@ -89,6 +90,7 @@ function App() {
           <Route path="/home" element={<Dashboard />} />
           <Route path="/new" element={<NewPack />} />
           <Route path="/review" element={<Flashcards />} />
+          <Route path="/checkin" element={<CheckIn />} />
           <Route path="/quiz/mixed" element={<QuizPage mixed />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin" element={<Admin />} />

@@ -47,6 +47,13 @@ interface MasteryItem {
   /** the lesson step where that section starts (to go over it again) */
   sectionStep: PlayStep | null;
   status: 'got' | 'helped' | 'review';
+  /** the question that checks this idea (asked again in later check-ins) */
+  check?: Check;
+  correct?: boolean;
+  /** right, but only a guess */
+  guessed?: boolean;
+  /** wrong, and sure of it: a misconception */
+  sureWrong?: boolean;
 }
 type Phase = 'ready' | 'playing' | 'paused' | 'waiting' | 'done';
 
@@ -227,6 +234,10 @@ function TutorPlayer({ id }: { id: number }) {
   /** every idea checked so far, and how well it was understood */
   const mastery = useRef(new Map<string, MasteryItem>());
   const [masteryList, setMasteryList] = useState<MasteryItem[]>([]);
+  /** parts of the lesson the student already knows (from the quick check, or mastered before): skipped */
+  const skip = useRef(new Set<PlayStep>());
+  /** parts of this topic mastered in earlier lessons */
+  const [knownBefore, setKnownBefore] = useState<Set<string>>(new Set());
   const greeted = useRef(false);
 
   // ── the tutor on the board
@@ -443,13 +454,27 @@ function TutorPlayer({ id }: { id: number }) {
     const here = stepsRef.current[o.stepAt];
     const root = here?.retryOf || o.qid;
     const attempt = here?.attempt || 0;
+    // "I'm guessing": a right guess isn't understanding yet, and a wrong answer given without it
+    // was given with confidence — a misconception to untangle, not just a gap
+    const guessed = !!quizRef.current[o.qid]?.guess;
+    const sureWrong = o.missed && !guessed && o.check.kind !== 'open';
     if (o.lessonIndex >= 0 && !o.check.predict) {
-      const sec = mastery.current.get(root) || { q: o.check.q, section: sectionOf(o.stepAt).title, sectionStep: sectionOf(o.stepAt).step, status: 'got' as const };
-      mastery.current.set(root, { ...sec, status: !o.missed ? (attempt > 0 || o.partly ? 'helped' : 'got') : 'review' });
+      const prev = mastery.current.get(root);
+      const sec = sectionOf(o.stepAt);
+      mastery.current.set(root, {
+        q: prev?.q || o.check.q,
+        section: prev?.section || sec.title,
+        sectionStep: prev?.sectionStep || sec.step,
+        check: prev?.check || o.check,
+        status: !o.missed ? (attempt > 0 || o.partly || guessed ? 'helped' : 'got') : 'review',
+        correct: !o.missed,
+        guessed: guessed && !o.missed,
+        sureWrong: (prev?.sureWrong ?? false) || sureWrong,
+      });
     }
     // fetch the new explanation while the tutor is still giving its feedback
     const help = o.missed && !o.check.predict && o.lessonIndex >= 0 && attempt < 2 && ai?.enabled
-      ? api<{ steps: TutorStep[]; check: Check; usage: any }>(`/tutor/lessons/${id}/reteach`, { body: { step: o.lessonIndex, question: o.check.q, answerGiven: o.given, rightAnswer: o.right, attempt: attempt + 1, tutor: persona.id } }).catch(() => null)
+      ? api<{ steps: TutorStep[]; check: Check; usage: any }>(`/tutor/lessons/${id}/reteach`, { body: { step: o.lessonIndex, question: o.check.q, answerGiven: o.given, rightAnswer: o.right, attempt: attempt + 1, confident: sureWrong, tutor: persona.id } }).catch(() => null)
       : null;
     const ok = await o.feedback;
     if (!ok) return false;
@@ -553,6 +578,17 @@ function TutorPlayer({ id }: { id: number }) {
       for (let i = Math.max(0, from); i < stepsRef.current.length; i++) {
         if (token !== runToken.current) return;
         const s = stepsRef.current[i];
+        // a part the student already knows: say so once, then skip ahead
+        const sec = !s.asked ? sectionOf(i).step : null;
+        if (sec && skip.current.has(sec)) {
+          if (s === sec) {
+            curRef.current = i;
+            setCur(i);
+            const h = s.board.find((b) => b.t === 'heading');
+            if (!(await narrate(`You already know ${h && h.t === 'heading' ? h.text : 'this part'}, so let's skip ahead.`, token, i, s.board.length, 'point'))) return;
+          }
+          continue;
+        }
         curRef.current = i;
         setCur(i);
         setRevealed(0);
@@ -584,7 +620,9 @@ function TutorPlayer({ id }: { id: number }) {
         }
       }
       if (token !== runToken.current) return;
-      setMasteryList([...mastery.current.values()]);
+      const learned = [...mastery.current.values()];
+      setMasteryList(learned);
+      saveMastery(learned);
       setPhase('done');
       act('wave');
       setOverview(true);
@@ -593,6 +631,90 @@ function TutorPlayer({ id }: { id: number }) {
     },
     [narrate, askCheck, data, id, act, firstName, persona.name, prefs.handsFree],
   );
+
+  /** One question per part of the lesson (its first multiple-choice check), for the quick check first. */
+  const diagnostic = useMemo(() => {
+    const out: { sectionStep: PlayStep; title: string; check: Check }[] = [];
+    let cur: { step: PlayStep; title: string } | null = null;
+    let taken = false;
+    for (const s of steps) {
+      if (s.asked) continue;
+      const h = s.board.find((b) => b.t === 'heading');
+      if (h && h.t === 'heading') {
+        cur = { step: s, title: h.text };
+        taken = false;
+      }
+      if (cur && !taken && s.check && s.check.kind !== 'open' && !s.check.predict) {
+        out.push({ sectionStep: cur.step, title: cur.title, check: s.check });
+        taken = true;
+      }
+    }
+    return out.slice(0, 5);
+  }, [steps]);
+
+  // what the student mastered in earlier lessons on this topic
+  useEffect(() => {
+    if (!data) return;
+    api<{ concepts: { concept: string; status: string }[] }>(`/mastery/topic?topic=${encodeURIComponent(data.lesson.title)}`)
+      .then((r) => setKnownBefore(new Set(r.concepts.filter((c) => c.status === 'got').map((c) => c.concept))))
+      .catch(() => {});
+  }, [data]);
+
+  /**
+   * "Quiz me first": a question on each part before teaching. Parts answered right (without a guess),
+   * or mastered in an earlier lesson, are skipped — no one sits through what they already know.
+   */
+  async function runDiagnostic() {
+    const token = ++runToken.current;
+    greeted.current = true;
+    setPhase('playing');
+    const todo = diagnostic.filter((d) => !knownBefore.has(d.title));
+    for (const d of diagnostic) if (knownBefore.has(d.title)) skip.current.add(d.sectionStep);
+    narrator.current?.prefetchAll(['Yes — you know this one.', "No problem — we'll cover that."]);
+    const intro = todo.length
+      ? `Hi${firstName ? ` ${firstName}` : ''}! Before we start, ${todo.length === 1 ? 'one quick question' : `${todo.length} quick questions`}, so I can skip what you already know.`
+      : `Hi${firstName ? ` ${firstName}` : ''}! You've learned parts of this before.`;
+    if (!(await narrate(intro, token, -1, 0, 'wave'))) return;
+    for (let k = 0; k < todo.length; k++) {
+      const d = todo[k];
+      const qid = `d${k}`;
+      setQuiz({ t: 'quiz', qid, label: `Before we start · ${k + 1} of ${todo.length}`, q: d.check.q, options: d.check.options, answer: d.check.answer, chosen: null, explain: d.check.explain });
+      awaitingRef.current = qid;
+      setAwaiting(qid);
+      const answered = new Promise<number>((resolve) => {
+        answerFn.current = resolve;
+      });
+      const first = await Promise.race([answered.then(() => 'answered' as const), narrate(d.check.q, token, -1, 0, 'think').then((ok) => (ok ? ('read' as const) : ('stopped' as const)))]);
+      if (first === 'stopped' && token !== runToken.current) return;
+      if (first !== 'answered') {
+        setPhase('waiting');
+        act('listen');
+      }
+      const chosen = await answered;
+      answerFn.current = null;
+      awaitingRef.current = null;
+      setAwaiting(null);
+      if (token !== runToken.current) return;
+      setPhase('playing');
+      const guessed = !!quizRef.current[qid]?.guess;
+      const ok = chosen === d.check.answer;
+      setQuiz({ ...quizRef.current[qid], chosen });
+      if (ok && !guessed) {
+        skip.current.add(d.sectionStep);
+        mastery.current.set(qid, { q: d.check.q, section: d.title, sectionStep: d.sectionStep, check: d.check, status: 'got', correct: true });
+      }
+      if (!(await narrate(ok && !guessed ? 'Yes — you know this one.' : "No problem — we'll cover that.", token, -1, 0, ok && !guessed ? 'happy' : 'explain'))) return;
+    }
+    const known = diagnostic.filter((d) => skip.current.has(d.sectionStep)).length;
+    const msg =
+      known === diagnostic.length
+        ? "You know all of this already! I'll skip ahead and we'll finish with practice."
+        : known
+          ? `You already know ${known} of the ${diagnostic.length} parts, so I'll skip ${known === 1 ? 'that one' : 'those'} and focus on the rest.`
+          : "Great — now I know where to start. Let's go.";
+    if (!(await narrate(msg, token, -1, 0, known ? 'happy' : 'explain'))) return;
+    void runFrom(0);
+  }
 
   function pause() {
     if (phaseRef.current !== 'playing') return;
@@ -629,6 +751,20 @@ function TutorPlayer({ id }: { id: number }) {
     setAwaiting(null);
     // past the last step: straight on to the practice
     void runFrom(Math.max(0, Math.min(stepsRef.current.length, to)));
+  }
+
+  /** The student's learner model: how each idea went, kept across lessons (and weak ideas brought back later). */
+  function saveMastery(items: MasteryItem[]) {
+    if (!items.length) return;
+    void api('/mastery/lesson', {
+      body: { lessonId: id, items: items.map((m) => ({ concept: m.section, outcome: m.status, correct: m.correct ?? m.status !== 'review', guessed: m.guessed, sureWrong: m.sureWrong, check: m.check })) },
+    }).catch(() => {});
+  }
+
+  /** "I'm guessing" on a question that is waiting for an answer. */
+  function toggleGuess(qid: string) {
+    const q = quizRef.current[qid];
+    if (q && q.chosen === null) setQuiz({ ...q, guess: !q.guess });
   }
 
   function answer(qid: string, i: number) {
@@ -937,6 +1073,12 @@ function TutorPlayer({ id }: { id: number }) {
   // everything written so far, with the questions after their steps and the practice at the end
   const shown: ShownItem[] = useMemo(() => {
     const out: ShownItem[] = [];
+    // the quick check before the lesson, in its own column at the start
+    const diag = Object.keys(quizzes).filter((k) => k.startsWith('d'));
+    if (diag.length) {
+      out.push({ key: 'diag-h', item: { t: 'heading', text: 'Quick check first' }, draw: 0 });
+      for (const k of diag) out.push({ key: `q-${k}`, item: quizzes[k], draw: 0 });
+    }
     let part = 0;
     steps.forEach((s, si) => {
       const lessonHeading = !s.asked;
@@ -1027,6 +1169,7 @@ function TutorPlayer({ id }: { id: number }) {
           tool={tool}
           onInk={setInk}
           onWriteSpot={onWriteSpot}
+          onGuess={toggleGuess}
           showPen={!prefs.avatar}
           insetBottom={prefs.avatar && phase !== 'ready' && (spot.current?.view.w ?? 1000) < 640 ? charH * 0.8 : 0}
         />
@@ -1095,18 +1238,26 @@ function TutorPlayer({ id }: { id: number }) {
           </div>
         )}
         {phase === 'ready' && (
-          <button className="tutor-startbtn" onClick={play}>
-            <span className="tutor-start-char">
-              <TutorCharacter tutor={persona.id} control={startControl} height={170} />
-            </span>
-            <span className="tutor-startcircle">
-              <Play size={30} />
-            </span>
-            <span>{data.step > 0 ? `Continue with ${persona.name}` : `Start with ${persona.name}`}</span>
-            <span className="small muted">
-              About {mins} min · {handsFreeSupported && prefs.handsFree ? 'just talk to ask a question' : 'tap the mic to ask a question'}
-            </span>
-          </button>
+          <div className="tutor-startbtn">
+            <button className="tutor-startmain" onClick={play}>
+              <span className="tutor-start-char">
+                <TutorCharacter tutor={persona.id} control={startControl} height={170} />
+              </span>
+              <span className="tutor-startcircle">
+                <Play size={30} />
+              </span>
+              <span>{data.step > 0 ? `Continue with ${persona.name}` : `Start with ${persona.name}`}</span>
+              <span className="small muted">
+                About {mins} min · {handsFreeSupported && prefs.handsFree ? 'just talk to ask a question' : 'tap the mic to ask a question'}
+              </span>
+            </button>
+            {data.step === 0 && diagnostic.length >= 2 && (
+              <button className="btn small tutor-quizfirst" onClick={() => void runDiagnostic()}>
+                <Sparkles size={15} /> Quiz me first — skip what I know
+                {knownBefore.size > 0 && <span className="small muted"> · you’ve mastered {knownBefore.size} part{knownBefore.size === 1 ? '' : 's'} before</span>}
+              </button>
+            )}
+          </div>
         )}
         {!follow && !overview && phase !== 'ready' && (
           <button className="tf-follow" onClick={() => setFollow(true)}>
@@ -1309,6 +1460,8 @@ function MasteryMap({ items, onReview }: { items: MasteryItem[]; onReview: (step
     else sections.set(m.section, { ...cur, n: cur.n + 1, status: rank[m.status] > rank[cur.status] ? m.status : cur.status });
   }
   const got = items.filter((m) => m.status !== 'review').length;
+  const sure = items.filter((m) => m.sureWrong).length;
+  const lucky = items.filter((m) => m.guessed).length;
   const label = { got: 'Understood', helped: 'Got it with help', review: 'Go over again' } as const;
   return (
     <div className="mastery">
@@ -1318,6 +1471,12 @@ function MasteryMap({ items, onReview }: { items: MasteryItem[]; onReview: (step
         </strong>
         {got === items.length ? ' — every one.' : '.'}
       </p>
+      {(sure > 0 || lucky > 0) && (
+        <p className="mastery-cal">
+          {sure > 0 && <>You were sure of {sure === 1 ? 'one answer' : `${sure} answers`} that turned out wrong — those are the ideas worth untangling. </>}
+          {lucky > 0 && <>{lucky === 1 ? 'One right answer was' : `${lucky} right answers were`} a guess, so {lucky === 1 ? 'it comes' : 'they come'} back for a check-in.</>}
+        </p>
+      )}
       <ul>
         {[...sections.entries()].map(([title, s]) => (
           <li key={title} className={`m-${s.status}`}>
@@ -1332,6 +1491,7 @@ function MasteryMap({ items, onReview }: { items: MasteryItem[]; onReview: (step
           </li>
         ))}
       </ul>
+      <p className="mastery-foot">Saved to your learning map. I’ll check these again in a few days — weak ones tomorrow.</p>
     </div>
   );
 }
