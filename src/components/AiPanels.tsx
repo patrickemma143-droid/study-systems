@@ -531,6 +531,8 @@ export function AiPlanCard() {
     { kind: 'homework', label: 'Homework problems' },
     { kind: 'voice', label: 'Natural voice (spoken steps)' },
     { kind: 'detect', label: 'Papers read for their details' },
+    { kind: 'reteach', label: 'Extra explanations (until you understand)' },
+    { kind: 'deep', label: 'Professor-level lessons' },
   ];
   return (
     <div className="sheet stack">

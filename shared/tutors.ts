@@ -122,9 +122,11 @@ export interface TutorPrefs {
   avatar: boolean;
   /** listen all the time during a lesson: just speak to interrupt */
   handsFree: boolean;
+  /** how deep new lessons go */
+  level: 'simple' | 'university' | 'professor';
 }
 
-export const DEFAULT_PREFS: TutorPrefs = { tutor: 'amara', accent: 'british', sound: 'natural', rate: 1, captions: true, avatar: true, handsFree: true };
+export const DEFAULT_PREFS: TutorPrefs = { tutor: 'amara', accent: 'british', sound: 'natural', rate: 1, captions: true, avatar: true, handsFree: true, level: 'university' };
 
 export function tutorById(id: string | undefined): TutorPersona {
   return TUTORS.find((t) => t.id === id) || TUTORS[0];
@@ -147,6 +149,7 @@ export function cleanPrefs(raw: any): TutorPrefs {
     if (typeof raw.captions === 'boolean') p.captions = raw.captions;
     if (typeof raw.avatar === 'boolean') p.avatar = raw.avatar;
     if (typeof raw.handsFree === 'boolean') p.handsFree = raw.handsFree;
+    if (raw.level === 'simple' || raw.level === 'university' || raw.level === 'professor') p.level = raw.level;
   }
   return p;
 }

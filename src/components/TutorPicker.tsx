@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Play, Square, X } from 'lucide-react';
 import { ACCENTS, TUTORS, tutorById, type TutorPrefs } from '../../shared/tutors';
+import { LEVELS } from '../../shared/tutor';
 import { TutorFace } from './TutorFace';
 import { TutorCharacter, type CharacterControl } from './TutorCharacter';
 import { Narrator, type Track } from '../lib/tutor/narrator';
@@ -120,6 +121,16 @@ export function TutorPicker({ prefs, natural, onSave, onClose }: { prefs: TutorP
           ))}
         </div>
 
+        <div className="picker-row">
+          <span className="label">Level of new lessons</span>
+          <div className="segmented wrap">
+            {LEVELS.map((l) => (
+              <button key={l.id} aria-pressed={p.level === l.id} onClick={() => setP({ ...p, level: l.id })} title={l.hint}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="picker-row">
           <span className="label">Accent</span>
           <div className="segmented wrap">

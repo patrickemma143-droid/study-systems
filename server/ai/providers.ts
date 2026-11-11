@@ -13,6 +13,8 @@ export interface AiRequest {
   images?: { mime: string; data: string }[];
   maxTokens: number;
   temperature?: number;
+  /** a different model for this request (Professor lessons); the main model is used if it fails */
+  model?: string;
 }
 
 export interface AiResult {
@@ -20,6 +22,8 @@ export interface AiResult {
   tokensIn: number;
   tokensOut: number;
   cachedIn: number;
+  /** the model that answered */
+  model?: string;
 }
 
 export class AiError extends Error {
@@ -83,7 +87,7 @@ async function gemini(req: AiRequest): Promise<AiResult> {
   if (req.json) generationConfig.responseMimeType = 'application/json';
   if (ai.geminiThinkingLevel) generationConfig.thinkingConfig = { thinkingLevel: ai.geminiThinkingLevel };
   const data = await postJson(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(ai.model)}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(req.model || ai.model)}:generateContent`,
     { 'x-goog-api-key': ai.key },
     {
       systemInstruction: { parts: [{ text: req.system }] },
@@ -103,6 +107,7 @@ async function gemini(req: AiRequest): Promise<AiResult> {
     tokensIn: Number(u.promptTokenCount || 0),
     tokensOut: Number(u.candidatesTokenCount || 0) + Number(u.thoughtsTokenCount || 0),
     cachedIn: Number(u.cachedContentTokenCount || 0),
+    model: req.model || ai.model,
   };
 }
 
@@ -111,7 +116,7 @@ async function claude(req: AiRequest): Promise<AiResult> {
     'https://api.anthropic.com/v1/messages',
     { 'x-api-key': ai.key, 'anthropic-version': '2023-06-01' },
     {
-      model: ai.model,
+      model: req.model || ai.model,
       max_tokens: req.maxTokens,
       temperature: req.temperature ?? 0.4,
       // The lesson notes sit in the system prompt, so follow-up questions read them from the cache.
@@ -132,6 +137,7 @@ async function claude(req: AiRequest): Promise<AiResult> {
     tokensIn: Number(u.input_tokens || 0) + Number(u.cache_creation_input_tokens || 0) + cachedIn,
     tokensOut: Number(u.output_tokens || 0),
     cachedIn,
+    model: req.model || ai.model,
   };
 }
 
@@ -180,6 +186,14 @@ async function mock(req: AiRequest): Promise<AiResult> {
       month: /may20/.test(squashed) ? 5 : null,
       year: Number((last.match(/\b(20\d\d)\b/) || [])[1]) || null,
       evidence: { university: 'read by the test AI' },
+    });
+  } else if (req.system.includes('TASK:RETEACH')) {
+    text = JSON.stringify({
+      steps: [
+        { say: "Good thinking — you're close. The mix-up is about what we do first. Let me show it another way, with a real example.", gesture: 'explain', board: [{ t: 'clear' }, { t: 'heading', text: 'Another way to see it' }, { t: 'example', title: 'Sharing 12 sweets', lines: ['Split the problem into two smaller pieces first', 'That is what factorising does', 'Then each piece is easy to solve'] }] },
+        { say: 'So we always split it up first. Let me check that has clicked.', gesture: 'emphasis', board: [{ t: 'box', label: 'Remember', text: 'Factorise first, then solve each bracket' }] },
+      ],
+      check: { kind: 'choice', q: 'To solve x² + 7x + 12 = 0, what is your first move?', options: ['Factorise into two brackets', 'Divide everything by 12', 'Guess a number'], answer: 0, explain: 'Factorising splits it into two easy pieces: (x+3)(x+4) = 0.' },
     });
   } else if (req.system.includes('TASK:MARK_OPEN')) {
     const good = /zero|0|one of/i.test(last);
@@ -278,9 +292,15 @@ async function mock(req: AiRequest): Promise<AiResult> {
 
 export async function complete(req: AiRequest): Promise<AiResult> {
   if (!ai.enabled) throw new AiError('AI features are not switched on for this site.', 503);
-  if (ai.provider === 'gemini') return gemini(req);
-  if (ai.provider === 'claude') return claude(req);
-  return mock(req);
+  const call = (r: AiRequest) => (ai.provider === 'gemini' ? gemini(r) : ai.provider === 'claude' ? claude(r) : mock(r));
+  if (!req.model || req.model === ai.model) return call(req);
+  try {
+    return await call(req);
+  } catch (err) {
+    // the stronger model isn't available on this key (or is busy): the main model still teaches
+    if (err instanceof AiError) return call({ ...req, model: undefined });
+    throw err;
+  }
 }
 
 /** Pull a JSON object out of a model reply, even if it is wrapped in ``` fences or extra words. */

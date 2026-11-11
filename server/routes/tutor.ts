@@ -10,8 +10,8 @@ import { db, now, parseJSON } from '../db';
 import { award } from '../points';
 import { aiDay, assertAllowed, cachedJson, limitsFor, record } from '../ai/service';
 import { AiError, speak, speakable } from '../ai/providers';
-import { askRequest, lessonRequest, openAnswerRequest, problemRequest, type TutorVoice } from '../ai/tutor';
-import { boardText, cleanBoardItem, cleanLesson, cleanSteps, type BoardItem, type TutorLesson, type TutorMode } from '../../shared/tutor';
+import { askRequest, lessonRequest, openAnswerRequest, problemRequest, reteachRequest, type TutorVoice } from '../ai/tutor';
+import { boardText, cleanBoardItem, cleanCheck, cleanLesson, cleanSteps, levelOf, type BoardItem, type TutorLesson, type TutorMode } from '../../shared/tutor';
 import { blocksFromPlainText, buildStudyPack, type CardSeed, type StudyPack } from '../../shared/engine';
 import { fetchTopic } from '../services/wikipedia';
 import { ACCENT_IDS, cleanPrefs, GEMINI_VOICES, TUTORS } from '../../shared/tutors';
@@ -71,6 +71,8 @@ tutorRouter.post('/lesson', async (req, res) => {
   requireAi();
   const uid = userId(res);
   const b = startSchema.parse(req.body);
+  // Simple, University (the default) or Professor; Professor lessons use the deeper model and their own allowance
+  const level = levelOf(req.body?.level);
   let title = '';
   let material = '';
   let packId: number | null = null;
@@ -103,7 +105,7 @@ tutorRouter.post('/lesson', async (req, res) => {
     material = b.text;
   }
   try {
-    const { data: lesson, cached } = await cachedJson(uid, 'teach', `lesson\n${b.mode}\n${title.toLowerCase()}\n${hash(material)}`, lessonRequest(b.mode, title, material), (raw) => cleanLesson(raw, b.mode));
+    const { data: lesson, cached } = await cachedJson(uid, level === 'professor' ? 'deep' : 'teach', `lesson-v3\n${level}\n${b.mode}\n${title.toLowerCase()}\n${hash(material)}`, lessonRequest(b.mode, title, material, level), (raw) => cleanLesson(raw, b.mode, level));
     const id = await saveLesson(uid, lesson, packId, chunk);
     res.status(201).json({ id, cached, usage: await limitsFor(uid) });
   } catch (err) {
@@ -224,6 +226,44 @@ tutorRouter.post('/lessons/:id/ask', async (req, res) => {
 });
 
 /** An open question answered in the student's own words (spoken or typed): marked like a teacher would. */
+/**
+ * Mastery loop: the student got a question wrong (or only partly right). The tutor finds the
+ * misunderstanding, teaches that idea again a new way, and asks a fresh question on it.
+ */
+tutorRouter.post('/lessons/:id/reteach', async (req, res) => {
+  requireAi();
+  const uid = userId(res);
+  const b = z
+    .object({
+      step: z.number().int().min(0).max(100),
+      question: z.string().trim().min(2).max(600),
+      answerGiven: z.string().trim().max(1200),
+      rightAnswer: z.string().trim().max(800),
+      attempt: z.number().int().min(1).max(3).default(1),
+      tutor: z.string().max(24).optional(),
+    })
+    .parse(req.body);
+  const { lesson } = await lessonRow(uid, Number(req.params.id));
+  const upto = lesson.steps.slice(0, b.step + 1);
+  const sofar = upto.map((s) => s.say).join('\n');
+  const items = upto.flatMap((s) => s.board);
+  const board = items.slice(items.map((x) => x.t).lastIndexOf('clear') + 1).map(boardText).filter(Boolean).join('\n');
+  const level = levelOf(lesson.level);
+  try {
+    const who = await whoTeaches(uid, b.tutor);
+    const key = `reteach\n${hash(lesson.title + b.question)}\n${b.answerGiven.toLowerCase()}\n${b.attempt}\n${level}\n${who?.tutor || ''}`;
+    const { data } = await cachedJson(uid, 'reteach', key, reteachRequest({ lessonTitle: lesson.title, level, sofar, board, question: b.question, answerGiven: b.answerGiven, rightAnswer: b.rightAnswer, attempt: b.attempt, who }), (raw) => {
+      const steps = cleanSteps(raw?.steps, 4).map(({ check: _drop, ...s }) => s);
+      const check = cleanCheck(raw?.check);
+      if (!steps.length || !check) throw new AiError('The tutor could not explain that one again. Carry on, and ask a question if it is still unclear.');
+      return { steps, check };
+    });
+    res.json({ ...data, usage: await limitsFor(uid) });
+  } catch (err) {
+    friendly(err);
+  }
+});
+
 tutorRouter.post('/lessons/:id/open', async (req, res) => {
   requireAi();
   const uid = userId(res);
@@ -232,14 +272,22 @@ tutorRouter.post('/lessons/:id/open', async (req, res) => {
       step: z.number().int().min(0).max(100),
       answer: z.string().trim().min(1, 'Say or type your answer first.').max(1200),
       tutor: z.string().max(24).optional(),
+      // a follow-up question the tutor asked while re-teaching (it is not stored in the lesson)
+      q: z.string().trim().max(600).optional(),
+      model: z.string().trim().max(800).optional(),
+      predict: z.boolean().optional(),
     })
     .parse(req.body);
   const { lesson } = await lessonRow(uid, Number(req.params.id));
-  const check = lesson.steps[b.step]?.check;
-  if (!check || check.kind !== 'open' || !check.model) throw new HttpError(404, 'That question is not in this lesson.');
+  const stored = lesson.steps[b.step]?.check;
+  const q = b.q || stored?.q || '';
+  const model = b.model || stored?.model || '';
+  if (!q || !model) throw new HttpError(404, 'That question is not in this lesson.');
+  const predict = b.predict ?? !!stored?.predict;
   try {
     const who = await whoTeaches(uid, b.tutor);
-    const { data } = await cachedJson(uid, 'tutor', `tutor-open\n${hash(lesson.title + check.q)}\n${b.answer.toLowerCase()}\n${who?.tutor || ''}`, openAnswerRequest(lesson.title, check.q, check.model, b.answer, who), (raw) => {
+    // marking answers is part of making sure the student understands: it uses the "reteach" allowance
+    const { data } = await cachedJson(uid, 'reteach', `tutor-open\n${hash(lesson.title + q)}\n${b.answer.toLowerCase()}\n${predict ? 'p' : ''}\n${who?.tutor || ''}`, openAnswerRequest(lesson.title, q, model, b.answer, who, predict), (raw) => {
       const verdict = raw?.verdict === 'right' || raw?.verdict === 'partly' ? raw.verdict : 'wrong';
       const say = typeof raw?.say === 'string' ? raw.say.replace(/\s+/g, ' ').trim().slice(0, 700) : '';
       if (!say) throw new AiError('The tutor could not mark that one. Try again.');

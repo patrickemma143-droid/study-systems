@@ -49,6 +49,8 @@ export interface Check {
   explain: string;
   /** open questions: what a good answer says */
   model?: string;
+  /** a guess before the answer is taught: wrong guesses are fine and not counted */
+  predict?: boolean;
 }
 
 /** How the tutor moves while saying a step (the character on the board acts it out). */
@@ -72,9 +74,19 @@ export interface PracticeItem {
   explain: string;
 }
 
+/** How deep the tutor goes: plain-words basics, university standard, or a doctoral-level professor. */
+export type TutorLevel = 'simple' | 'university' | 'professor';
+export const LEVELS: { id: TutorLevel; label: string; hint: string }[] = [
+  { id: 'simple', label: 'Simple', hint: 'Plain words and everyday examples' },
+  { id: 'university', label: 'University', hint: 'Exam-ready depth' },
+  { id: 'professor', label: 'Professor', hint: 'Doctorate-level depth and debate' },
+];
+export const levelOf = (v: unknown): TutorLevel => (v === 'simple' || v === 'professor' ? v : 'university');
+
 export interface TutorLesson {
   title: string;
   mode: TutorMode;
+  level?: TutorLevel;
   steps: TutorStep[];
   summary: string[];
   practice: PracticeItem[];
@@ -191,7 +203,7 @@ export function cleanCheck(raw: any): Check | undefined {
   if (raw.kind === 'open' || raw.open === true) {
     const q = str(raw.q, 300);
     const model = str(raw.model || raw.answer, 500);
-    return q && model ? { kind: 'open', q, options: [], answer: -1, explain: str(raw.explain, 400), model } : undefined;
+    return q && model ? { kind: 'open', q, options: [], answer: -1, explain: str(raw.explain, 400), model, predict: raw.predict === true || undefined } : undefined;
   }
   const options = strs(raw.options, 4, 140);
   const answer = Number(raw.answer);
@@ -200,7 +212,7 @@ export function cleanCheck(raw: any): Check | undefined {
   return { kind: 'choice', q, options, answer, explain: str(raw.explain, 400) };
 }
 
-export function cleanSteps(raw: unknown, max = 20): TutorStep[] {
+export function cleanSteps(raw: unknown, max = 26): TutorStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((s: any) => {
@@ -226,13 +238,14 @@ export function cleanPractice(raw: unknown): PracticeItem[] {
     .slice(0, 6);
 }
 
-export function cleanLesson(raw: any, mode: TutorMode): TutorLesson {
+export function cleanLesson(raw: any, mode: TutorMode, level: TutorLevel = 'university'): TutorLesson {
   const steps = cleanSteps(raw?.steps);
   if (steps.length < 2) throw new Error('The lesson came back incomplete.');
   const tq = str(raw?.tryNext?.q, 400);
   return {
     title: str(raw?.title, 120) || 'Lesson',
     mode,
+    level,
     steps,
     summary: strs(raw?.summary, 5, 200),
     practice: cleanPractice(raw?.practice),

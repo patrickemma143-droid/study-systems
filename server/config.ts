@@ -80,7 +80,7 @@ function webPort(): number {
 
 // ─── AI (optional) ───────────────────────────────────────────
 // No key → the app stays fully API-free. Set GEMINI_API_KEY or ANTHROPIC_API_KEY (or AI_PROVIDER + AI_API_KEY).
-export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice' | 'detect';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice' | 'detect' | 'reteach' | 'deep';
 type Limits = Record<AiKind, number>;
 
 function parseLimits(text: string | undefined, fallback: Limits): Limits {
@@ -94,11 +94,15 @@ function parseLimits(text: string | undefined, fallback: Limits): Limits {
 
 const aiProvider = (env.AI_PROVIDER || (env.GEMINI_API_KEY ? 'gemini' : env.ANTHROPIC_API_KEY ? 'claude' : 'none')).toLowerCase() as 'gemini' | 'claude' | 'mock' | 'none';
 const DEFAULT_MODEL = { gemini: 'gemini-3.5-flash-lite', claude: 'claude-haiku-5-5', mock: 'mock-model', none: '' } as const;
+/** a stronger model for Professor-level lessons (falls back to the main model if it isn't available) */
+const DEFAULT_DEEP_MODEL = { gemini: 'gemini-3.8-flash', claude: 'claude-sonnet-5-5', mock: 'mock-model', none: '' } as const;
 
 export const ai = {
   provider: aiProvider,
   key: env.AI_API_KEY || (aiProvider === 'gemini' ? env.GEMINI_API_KEY : aiProvider === 'claude' ? env.ANTHROPIC_API_KEY : '') || '',
   model: env.AI_MODEL || DEFAULT_MODEL[aiProvider] || '',
+  /** Professor-level lessons: deeper reasoning (AI_DEEP_MODEL to change it) */
+  deepModel: env.AI_DEEP_MODEL || DEFAULT_DEEP_MODEL[aiProvider] || '',
   get enabled() {
     return this.provider === 'mock' || ((this.provider === 'gemini' || this.provider === 'claude') && !!this.key);
   },
@@ -110,8 +114,8 @@ export const ai = {
   limits: {
     // teach = whiteboard lessons, homework = snapped problems, voice = spoken steps (natural voice),
     // detect = reading where and when an uploaded paper is from
-    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 250, detect: 30 }),
-    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 2500, detect: 300 }),
+    free: parseLimits(env.AI_LIMITS_FREE, { simplify: 10, tutor: 5, feedback: 3, build: 30, paper: 2, teach: 5, homework: 3, voice: 250, detect: 30, reteach: 40, deep: 3 }),
+    pro: parseLimits(env.AI_LIMITS_PRO, { simplify: 200, tutor: 60, feedback: 30, build: 400, paper: 20, teach: 80, homework: 40, voice: 2500, detect: 300, reteach: 400, deep: 40 }),
   },
 };
 

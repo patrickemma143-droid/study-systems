@@ -34,7 +34,20 @@ interface LessonReply {
   ink?: InkStroke[];
 }
 
-type PlayStep = TutorStep & { lessonIndex: number; asked?: boolean };
+/**
+ * A step being played. Steps the tutor adds during the lesson (an answer to a question, or an idea
+ * taught again after a wrong answer) are `asked`; re-teaching steps also say which question they help with.
+ */
+type PlayStep = TutorStep & { lessonIndex: number; asked?: boolean; retryOf?: string; attempt?: number; label?: string };
+
+/** How well each idea checked in the lesson was understood. */
+interface MasteryItem {
+  q: string;
+  section: string;
+  /** the lesson step where that section starts (to go over it again) */
+  sectionStep: PlayStep | null;
+  status: 'got' | 'helped' | 'review';
+}
 type Phase = 'ready' | 'playing' | 'paused' | 'waiting' | 'done';
 
 const PRAISE = ['Exactly right!', 'Yes — well done!', 'Spot on!', 'That’s it!', 'Brilliant, correct!', 'Nailed it!'];
@@ -48,7 +61,7 @@ const pickBy = <T,>(a: T[], key: string) => a[[...key].reduce((h, c) => (h * 31 
 const checkLine = (check: Check, label: string) => (check.kind === 'open' ? check.q : `${label}. ${check.q}`);
 /** What the tutor says after a multiple-choice answer, right or wrong (known before the student answers). */
 function feedbackLine(qid: string, check: Check, ok: boolean, name: string) {
-  if (ok) return `${pickBy(PRAISE, qid)}${name && pickBy([0, 1, 2], qid + name) === 0 ? `, ${name}` : ''}. ${check.explain}`;
+  if (ok) return `${pickBy(PRAISE, qid).replace(/[.!]+$/, '')}${name && pickBy([0, 1, 2], qid + name) === 0 ? `, ${name}` : ''}! ${check.explain}`;
   return `${pickBy(NOT_QUITE, qid)} The answer is ${String.fromCharCode(65 + check.answer)}, ${check.options[check.answer]}. ${check.explain}`;
 }
 const GESTURE_ACT: Record<Gesture, Act> = { explain: 'explain', point: 'point', emphasis: 'emphasis', think: 'think', happy: 'happy', wave: 'wave', count: 'count' };
@@ -78,19 +91,21 @@ function TutorStart() {
         : mode === 'exam'
           ? { mode, packId: Number(params.get('pack')) }
           : { mode: 'topic', topic: params.get('topic') || '' };
-    api<{ id: number; usage: any }>('/tutor/lesson', { body })
+    const level = params.get('level') || prefs?.level || 'university';
+    api<{ id: number; usage: any }>('/tutor/lesson', { body: { ...body, level } })
       .then((r) => {
         updateAiUsage(r.usage);
         nav(`/tutor/${r.id}`, { replace: true });
       })
       .catch((e) => setError(e.message));
-  }, [mode, params, nav]);
+  }, [mode, params, nav, prefs?.level]);
 
   useEffect(() => {
-    if (started.current) return;
+    // wait for the student's settings, so the lesson is made at the level they chose
+    if (started.current || !prefs) return;
     started.current = true;
     start();
-  }, [start]);
+  }, [start, prefs]);
   control.current.act = error ? 'sad' : 'think';
 
   return (
@@ -116,7 +131,7 @@ function TutorStart() {
           <>
             <h2 className="hand-title">{persona.name} is planning your lesson…</h2>
             <p className="muted">
-              <strong>{what}</strong> — about 20 seconds the first time.
+              <strong>{what}</strong>{prefs?.level === 'professor' ? ' at Professor level' : ''} — {prefs?.level === 'professor' ? 'about a minute' : 'about 20 seconds'} the first time.
             </p>
             <div className="tutor-dots" aria-hidden>
               <span />
@@ -195,6 +210,9 @@ function TutorPlayer({ id }: { id: number }) {
   const hf = useRef<HandsFree | null>(null);
   /** the lesson was paused because the student started talking */
   const barged = useRef(false);
+  /** every idea checked so far, and how well it was understood */
+  const mastery = useRef(new Map<string, MasteryItem>());
+  const [masteryList, setMasteryList] = useState<MasteryItem[]>([]);
   const greeted = useRef(false);
 
   // ── the tutor on the board
@@ -392,13 +410,56 @@ function TutorPlayer({ id }: { id: number }) {
     });
   }, [act]);
 
+  /** The lesson section a step belongs to (its heading and first step), for the mastery map. */
+  function sectionOf(stepAt: number): { title: string; step: PlayStep | null } {
+    for (let i = Math.min(stepAt, stepsRef.current.length - 1); i >= 0; i--) {
+      const s = stepsRef.current[i];
+      const h = !s.asked && s.board.find((b) => b.t === 'heading');
+      if (h && h.t === 'heading') return { title: h.text, step: s };
+    }
+    return { title: data?.lesson.title || 'This lesson', step: stepsRef.current[0] || null };
+  }
+
+  /**
+   * The mastery loop: a missed question means the idea hasn't clicked yet. The tutor works out the
+   * misunderstanding, teaches it again a new way, and asks a fresh question on it — up to twice —
+   * before moving on. Each idea ends as understood, understood after help, or one to review.
+   */
+  async function afterAnswer(o: { qid: string; check: Check; stepAt: number; lessonIndex: number; missed: boolean; partly?: boolean; given: string; right: string; feedback: Promise<boolean> }) {
+    const here = stepsRef.current[o.stepAt];
+    const root = here?.retryOf || o.qid;
+    const attempt = here?.attempt || 0;
+    if (o.lessonIndex >= 0 && !o.check.predict) {
+      const sec = mastery.current.get(root) || { q: o.check.q, section: sectionOf(o.stepAt).title, sectionStep: sectionOf(o.stepAt).step, status: 'got' as const };
+      mastery.current.set(root, { ...sec, status: !o.missed ? (attempt > 0 || o.partly ? 'helped' : 'got') : 'review' });
+    }
+    // fetch the new explanation while the tutor is still giving its feedback
+    const help = o.missed && !o.check.predict && o.lessonIndex >= 0 && attempt < 2 && ai?.enabled
+      ? api<{ steps: TutorStep[]; check: Check; usage: any }>(`/tutor/lessons/${id}/reteach`, { body: { step: o.lessonIndex, question: o.check.q, answerGiven: o.given, rightAnswer: o.right, attempt: attempt + 1, tutor: persona.id } }).catch(() => null)
+      : null;
+    const ok = await o.feedback;
+    if (!ok) return false;
+    if (o.missed && !o.check.predict && o.lessonIndex >= 0 && attempt >= 2) {
+      return narrate(`No worries${firstName ? `, ${firstName}` : ''} — this one is tricky. I've marked it to go over again, and it will come back in your review.`, runToken.current, -1, 0, 'explain');
+    }
+    const r = help ? await help : null;
+    if (!r) return true;
+    updateAiUsage(r.usage);
+    // teach it again straight after this step, ending with the new question
+    const extra: PlayStep[] = r.steps.map((s, k) => ({ ...s, lessonIndex: o.lessonIndex, asked: true, retryOf: root, attempt: attempt + 1, ...(k === r.steps.length - 1 ? { check: r.check, label: 'Let’s try that again' } : {}) }));
+    const all = [...stepsRef.current.slice(0, o.stepAt + 1), ...extra, ...stepsRef.current.slice(o.stepAt + 1)];
+    stepsRef.current = all;
+    setSteps(all);
+    return true;
+  }
+
   /** Write a question on the board, read it out, wait for the answer, then react to it like a teacher. */
   const askCheck = useCallback(
-    async (qid: string, check: Check, label: string, token: number, lessonIndex: number) => {
+    async (qid: string, check: Check, label: string, token: number, lessonIndex: number, stepAt = -1) => {
       const existing = quizRef.current[qid];
       if (existing && (existing.chosen !== null || existing.verdict)) return true;
       const open = check.kind === 'open';
-      setQuiz({ t: 'quiz', qid, label: open ? 'Your turn — in your own words' : label, q: check.q, options: check.options, answer: check.answer, chosen: null, explain: check.explain, open });
+      setQuiz({ t: 'quiz', qid, label: open ? (check.predict ? 'Predict — what do you think?' : 'Your turn — in your own words') : label, q: check.q, options: check.options, answer: check.answer, chosen: null, explain: check.explain, open });
       // the student can answer as soon as the question is on the board, even while it is read out
       awaitingRef.current = qid;
       setAwaiting(qid);
@@ -431,9 +492,9 @@ function TutorPlayer({ id }: { id: number }) {
         setQuiz({ ...quizRef.current[qid], said, verdict: 'marking' });
         act('think');
         let verdict: 'right' | 'partly' | 'wrong' = 'partly';
-        let say = `Good thinking. Here's what I was looking for: ${check.model}`;
+        let say = check.predict ? "Interesting guess — let's find out." : `Good thinking. Here's what I was looking for: ${check.model}`;
         try {
-          const r = await api<{ verdict: 'right' | 'partly' | 'wrong'; say: string; usage: any }>(`/tutor/lessons/${id}/open`, { body: { step: lessonIndex, answer: said, tutor: persona.id } });
+          const r = await api<{ verdict: 'right' | 'partly' | 'wrong'; say: string; usage: any }>(`/tutor/lessons/${id}/open`, { body: { step: lessonIndex >= 0 ? lessonIndex : 0, answer: said, tutor: persona.id, q: check.q, model: check.model, predict: !!check.predict } });
           updateAiUsage(r.usage);
           verdict = r.verdict;
           say = r.say;
@@ -442,16 +503,18 @@ function TutorPlayer({ id }: { id: number }) {
         }
         if (token !== runToken.current) return false;
         setQuiz({ ...quizRef.current[qid], said, verdict });
-        return narrate(say, token, -1, 0, verdict === 'right' ? 'happy' : verdict === 'partly' ? 'explain' : 'emphasis');
+        const feedback = narrate(say, token, -1, 0, check.predict ? 'think' : verdict === 'right' ? 'happy' : verdict === 'partly' ? 'explain' : 'emphasis');
+        return afterAnswer({ qid, check, stepAt, lessonIndex, missed: verdict === 'wrong', partly: verdict === 'partly', given: said, right: check.model || check.explain, feedback });
       }
 
       const chosen = Number(got);
       setQuiz({ ...quizRef.current[qid], chosen });
       const ok = chosen === check.answer;
-      const feedback = feedbackLine(qid, check, ok, firstName);
-      return narrate(feedback, token, -1, 0, ok ? 'happy' : 'explain');
+      const feedback = narrate(feedbackLine(qid, check, ok, firstName), token, -1, 0, ok ? 'happy' : 'explain');
+      return afterAnswer({ qid, check, stepAt, lessonIndex, missed: !ok, given: check.options[chosen] ?? '(no answer)', right: `${check.options[check.answer]}. ${check.explain}`, feedback });
     },
-    [narrate, act, id, persona.id, firstName, prefs.handsFree],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [narrate, act, id, persona.id, firstName, prefs.handsFree, ai?.enabled, data],
   );
 
   /** Play the lesson from a step to the end: steps, checks, then practice on the board. */
@@ -487,7 +550,7 @@ function TutorPlayer({ id }: { id: number }) {
           setSection({ part, title: h.text, n: Date.now() });
         }
         if (!(await narrate(s.say, token, i, s.board.length, s.gesture ? GESTURE_ACT[s.gesture] : undefined))) return;
-        if (s.check && !(await askCheck(`c${i}`, s.check, 'Quick check', token, s.lessonIndex))) return;
+        if (s.check && !(await askCheck(`c${i}`, s.check, s.label || 'Quick check', token, s.lessonIndex, i))) return;
         if (!s.asked && data) void api(`/tutor/lessons/${id}`, { method: 'PATCH', body: { step: s.lessonIndex } }).catch(() => {});
       }
       // practice on the board
@@ -507,6 +570,7 @@ function TutorPlayer({ id }: { id: number }) {
         }
       }
       if (token !== runToken.current) return;
+      setMasteryList([...mastery.current.values()]);
       setPhase('done');
       act('wave');
       setOverview(true);
@@ -879,7 +943,10 @@ function TutorPlayer({ id }: { id: number }) {
           <X size={20} />
         </Link>
         <div className="tf-title">
-          <h1>{data.lesson.title}</h1>
+          <h1>
+            {data.lesson.title}
+            {data.lesson.level && data.lesson.level !== 'university' && <span className={`tf-level ${data.lesson.level}`}>{data.lesson.level === 'professor' ? 'Professor' : 'Simple'}</span>}
+          </h1>
           <div className="tf-progressbar" role="progressbar" aria-valuemin={0} aria-valuemax={lessonSteps} aria-valuenow={step.lessonIndex + 1} aria-label={`Step ${step.lessonIndex + 1} of ${lessonSteps}`}>
             <span style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
@@ -993,7 +1060,13 @@ function TutorPlayer({ id }: { id: number }) {
             <LocateFixed size={15} /> Follow {persona.name}
           </button>
         )}
-        {showEnd && <LessonEnd id={id} data={data} result={result} onReplay={() => go(0)} onNext={() => data.next && data.packId && nav(`/tutor/new?mode=lesson&pack=${data.packId}&chunk=${data.next.chunk}`)} onClose={() => setShowEnd(false)} />}
+        {showEnd && <LessonEnd id={id} data={data} result={result} mastery={masteryList} onReview={(st) => {
+              // go back to that part and ask its questions again (fresh, not already answered)
+              const from = Math.max(0, stepsRef.current.indexOf(st));
+              quizRef.current = Object.fromEntries(Object.entries(quizRef.current).filter(([k]) => !(k.startsWith('c') && Number(k.slice(1)) >= from)));
+              setQuizzes(quizRef.current);
+              go(from);
+            }} onReplay={() => go(0)} onNext={() => data.next && data.packId && nav(`/tutor/new?mode=lesson&pack=${data.packId}&chunk=${data.next.chunk}`)} onClose={() => setShowEnd(false)} />}
       </div>
 
       {(typing || awaitingOpen) && (
@@ -1088,7 +1161,7 @@ function TutorPlayer({ id }: { id: number }) {
   );
 }
 
-function LessonEnd({ id, data, result, onReplay, onNext, onClose }: { id: number; data: LessonReply; result: { score: number; total: number; points: number } | null; onReplay: () => void; onNext: () => void; onClose: () => void }) {
+function LessonEnd({ id, data, result, mastery, onReview, onReplay, onNext, onClose }: { id: number; data: LessonReply; result: { score: number; total: number; points: number } | null; mastery: MasteryItem[]; onReview: (step: PlayStep) => void; onReplay: () => void; onNext: () => void; onClose: () => void }) {
   const toast = useToast();
   const { lesson } = data;
   const [saved, setSaved] = useState<number | null>(null);
@@ -1124,6 +1197,7 @@ function LessonEnd({ id, data, result, onReplay, onNext, onClose }: { id: number
           in the practice{result.points > 0 ? ` · +${result.points} Memory points` : ''}
         </p>
       )}
+      {mastery.length > 0 && <MasteryMap items={mastery} onReview={onReview} />}
       {lesson.summary.length > 0 && (
         <ul className="tutor-summary">
           {lesson.summary.map((s, i) => (
@@ -1167,6 +1241,44 @@ function LessonEnd({ id, data, result, onReplay, onNext, onClose }: { id: number
           Learn something else
         </Link>
       </div>
+    </div>
+  );
+}
+
+/** How well each part of the lesson was understood, with a way to go over the weak parts again. */
+function MasteryMap({ items, onReview }: { items: MasteryItem[]; onReview: (step: PlayStep) => void }) {
+  // one row per section: its weakest idea decides its colour
+  const rank = { got: 0, helped: 1, review: 2 } as const;
+  const sections = new Map<string, { step: PlayStep | null; status: MasteryItem['status']; n: number }>();
+  for (const m of items) {
+    const cur = sections.get(m.section);
+    if (!cur) sections.set(m.section, { step: m.sectionStep, status: m.status, n: 1 });
+    else sections.set(m.section, { ...cur, n: cur.n + 1, status: rank[m.status] > rank[cur.status] ? m.status : cur.status });
+  }
+  const got = items.filter((m) => m.status !== 'review').length;
+  const label = { got: 'Understood', helped: 'Got it with help', review: 'Go over again' } as const;
+  return (
+    <div className="mastery">
+      <p className="mastery-head">
+        <strong>
+          You understood {got} of {items.length} ideas
+        </strong>
+        {got === items.length ? ' — every one.' : '.'}
+      </p>
+      <ul>
+        {[...sections.entries()].map(([title, s]) => (
+          <li key={title} className={`m-${s.status}`}>
+            <span className="m-dot" aria-hidden />
+            <span className="m-title">{title}</span>
+            <span className="m-status">{label[s.status]}</span>
+            {s.status !== 'got' && s.step && (
+              <button className="btn small" onClick={() => onReview(s.step!)}>
+                Go over it again
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { TutorPicker } from '../components/TutorPicker';
 import { TutorCharacter, type CharacterControl } from '../components/TutorCharacter';
 import { useTutorPrefs } from '../lib/tutor/prefs';
 import { DEFAULT_PREFS, tutorById } from '../../shared/tutors';
+import { LEVELS } from '../../shared/tutor';
 
 interface TutorSummary {
   id: number;
@@ -113,6 +114,16 @@ export default function Dashboard() {
               <Play size={16} /> {ai?.enabled ? 'Teach me' : 'Make lessons'}
             </button>
           </form>
+          {ai?.enabled && (
+            <div className="level-pick" role="radiogroup" aria-label="How deep should the tutor go?">
+              <span>Level</span>
+              {LEVELS.map((l) => (
+                <button key={l.id} type="button" role="radio" aria-checked={(tp.prefs?.level || 'university') === l.id} title={l.hint} onClick={() => void tp.save({ ...(tp.prefs || DEFAULT_PREFS), level: l.id })}>
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="learn-ideas">
             {TOPIC_IDEAS.map((t) => (
               <button key={t} className="chip" onClick={() => learnTopic(undefined, t)}>

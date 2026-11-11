@@ -27,7 +27,7 @@ export async function userPlan(userId: number): Promise<{ plan: 'free' | 'pro'; 
 /** Requests that actually used the AI today (shared/cached answers don't count). */
 export async function usedToday(userId: number): Promise<Record<AiKind, number>> {
   const rows = await db('ai_events').where({ user_id: userId, day: aiDay(), cached: false }).groupBy('kind').select('kind').count({ n: '*' });
-  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0, build: 0, paper: 0, teach: 0, homework: 0, voice: 0, detect: 0 };
+  const out: Record<AiKind, number> = { simplify: 0, tutor: 0, feedback: 0, build: 0, paper: 0, teach: 0, homework: 0, voice: 0, detect: 0, reteach: 0, deep: 0 };
   for (const r of rows as any[]) if (r.kind in out) out[r.kind as AiKind] = Number(r.n);
   return out;
 }
@@ -48,7 +48,7 @@ export async function assertAllowed(userId: number, kind: AiKind) {
 }
 
 function label(kind: AiKind) {
-  return ({ simplify: 'simple explanations', tutor: 'tutor questions', feedback: 'AI marks', build: 'smart lessons', paper: 'AI exam papers', teach: 'whiteboard lessons', homework: 'homework problems', voice: 'spoken steps', detect: 'paper checks' } as Record<AiKind, string>)[kind];
+  return ({ simplify: 'simple explanations', tutor: 'tutor questions', feedback: 'AI marks', build: 'smart lessons', paper: 'AI exam papers', teach: 'whiteboard lessons', homework: 'homework problems', voice: 'spoken steps', detect: 'paper checks', reteach: 'extra explanations', deep: 'Professor lessons' } as Record<AiKind, string>)[kind];
 }
 
 export async function record(userId: number, kind: AiKind, result: AiResult | null, cached: boolean, costOverride?: number) {
@@ -56,11 +56,11 @@ export async function record(userId: number, kind: AiKind, result: AiResult | nu
     user_id: userId,
     day: aiDay(),
     kind,
-    model: ai.model,
+    model: result?.model || ai.model,
     cached,
     tokens_in: result?.tokensIn || 0,
     tokens_out: result?.tokensOut || 0,
-    cost_micro_usd: costOverride ?? (result ? costMicroUsd(ai.model, result.tokensIn, result.tokensOut, result.cachedIn) : 0),
+    cost_micro_usd: costOverride ?? (result ? costMicroUsd(result.model || ai.model, result.tokensIn, result.tokensOut, result.cachedIn) : 0),
     created_at: now(),
   });
 }
@@ -86,7 +86,7 @@ export async function cachedJson<T>(userId: number, kind: AiKind, keyInput: stri
   const data = clean(parseJsonReply(result.text));
   await record(userId, kind, result, false);
   try {
-    await db('ai_cache').insert({ cache_key: key, kind, model: ai.model, output: JSON.stringify(data), tokens_in: result.tokensIn, tokens_out: result.tokensOut, created_at: now() });
+    await db('ai_cache').insert({ cache_key: key, kind, model: result.model || ai.model, output: JSON.stringify(data), tokens_in: result.tokensIn, tokens_out: result.tokensOut, created_at: now() });
   } catch {
     /* another request stored the same answer a moment earlier — fine */
   }

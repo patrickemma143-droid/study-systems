@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { api } from '../api';
 
-export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice' | 'detect';
+export type AiKind = 'simplify' | 'tutor' | 'feedback' | 'build' | 'paper' | 'teach' | 'homework' | 'voice' | 'detect' | 'reteach' | 'deep';
 
 export interface AiStatus {
   enabled: boolean;
